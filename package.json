@@ -6,7 +6,7 @@
     "node": ">=20"
   },
   "scripts": {
-    "test": "node --test tests/backend.test.js tests/profiles.test.js"
+    "test": "node --test tests/backend.test.js tests/profiles.test.js tests/rpc.test.js"
   },
   "dependencies": {
     "firebase-admin": "^12.7.0"
