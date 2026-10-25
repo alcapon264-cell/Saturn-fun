@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "engines": {
-    "node": ">=20"
+    "node": "22.x"
   },
   "scripts": {
     "test": "node --test tests/backend.test.js tests/profiles.test.js tests/rpc.test.js"
@@ -12,5 +12,8 @@
     "firebase-admin": "^12.7.0",
     "@irys/upload": "^0.0.15",
     "@irys/upload-solana": "^0.1.8"
+  },
+  "overrides": {
+    "uuid": "^9.0.1"
   }
 }
