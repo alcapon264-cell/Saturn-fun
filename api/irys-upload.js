@@ -92,10 +92,10 @@ export default async function handler(req, res) {
       });
     }
 
-    const irys = Uploader(Solana)
-      .withWallet(privateKey)
-      .withRpc("https://api.mainnet-beta.solana.com");
-
+    const irys = await Uploader(Solana)
+  .withWallet(privateKey)
+  .withRpc("https://api.mainnet-beta.solana.com");
+      
     const receipt = await irys.upload(parsed.buffer, {
       tags: [
         {
