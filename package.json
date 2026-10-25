@@ -9,6 +9,8 @@
     "test": "node --test tests/backend.test.js tests/profiles.test.js tests/rpc.test.js"
   },
   "dependencies": {
-    "firebase-admin": "^12.7.0"
+    "firebase-admin": "^12.7.0",
+    "@irys/upload": "^0.0.15",
+    "@irys/upload-solana": "^0.1.8"
   }
 }
