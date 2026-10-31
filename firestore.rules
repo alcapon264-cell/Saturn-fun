@@ -1,12 +1,28 @@
+
 rules_version = '2';
-// Clients may READ only their own account document and can never write anything.
-// Every write (accounts, wallet links, events, errors) is done by the backend with the Admin SDK, which bypasses these rules.
+
 service cloud.firestore {
   match /databases/{database}/documents {
+
+    // Existing Saturn account protection.
     match /users/{uid} {
-      allow read: if request.auth != null && request.auth.uid == uid;
+      allow read: if request.auth != null
+                  && request.auth.uid == uid;
       allow write: if false;
     }
+
+    // Token community: public reads, backend-only writes.
+    match /communityRooms/{room}/messages/{msg} {
+      allow read: if true;
+      allow create, update, delete: if false;
+    }
+
+    // Community rate-limit records: backend only.
+    match /communityUsers/{uid} {
+      allow read, write: if false;
+    }
+
+    // Deny everything else unless explicitly authorized above.
     match /{document=**} {
       allow read, write: if false;
     }
