@@ -1,12 +1,29 @@
 rules_version = '2';
-// Clients may READ only their own account document and can never write anything.
-// Every write (accounts, wallet links, events, errors) is done by the backend with the Admin SDK, which bypasses these rules.
+
 service cloud.firestore {
   match /databases/{database}/documents {
+
+    // Users can read only their own account.
     match /users/{uid} {
-      allow read: if request.auth != null && request.auth.uid == uid;
+      allow read: if request.auth != null
+                  && request.auth.uid == uid;
       allow write: if false;
     }
+
+    // Community messages: public reads, maximum 100 per query.
+    match /communityRooms/{room}/messages/{msg} {
+      allow get: if true;
+      allow list: if request.query.limit != null
+                  && request.query.limit <= 100;
+      allow write: if false;
+    }
+
+    // Community rate-limit and identity records stay private.
+    match /communityUsers/{uid} {
+      allow read, write: if false;
+    }
+
+    // Deny everything else.
     match /{document=**} {
       allow read, write: if false;
     }
