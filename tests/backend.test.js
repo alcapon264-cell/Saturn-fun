@@ -116,7 +116,6 @@ test('owner summary separates fee-verified (Saturn-attributed) volume from unatt
   s.app = createApp({ auth, store: s.store, rpc: { async getTransaction() { return mkTx({ wallet: W.address, tokPost: 10, trePost: 0, treWsolPost: 0 }); } }, now: () => 1_700_000_000_000, env: { SATURN_ALLOWED_ORIGINS: ORIGIN, OWNER_UIDS: 'OWNER', PLATFORM_TREASURY_WALLET: TREASURY } });
   await call(s.app.events, { body: { ...buy, sig: SIG2 } }); const m = (await call(s.app.owner, { method: 'GET', token: 'owner-token' })).body.summary;
   assert.equal(m.trades, 2); assert.equal(m.feeVerifiedTrades, 1); assert.equal(m.feeVerifiedVolumeLamports, '100000000'); assert.equal(m.volumeLamports, '200000000'); });
-const idx = fs.readFileSync(new URL('../../index-14.html', import.meta.url), 'utf8'), own = fs.readFileSync(new URL('../../owner.html', import.meta.url), 'utf8');
 test('owner.html: Firebase web config matches the one in index-14.html (cannot drift)', () => {
   for (const k of ['apiKey', 'authDomain', 'projectId', 'appId']) { const v = new RegExp(k + ":'([^']+)'").exec(idx)[1]; assert.ok(own.includes(`${k}: '${v}'`), k); } });
 test('owner.html: renders data with textContent only (no innerHTML), contains no secrets, is noindex', () => {
