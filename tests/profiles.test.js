@@ -8,7 +8,18 @@ import { makeStore } from '../lib/deps.js';
 import { normalizeUsername } from '../lib/profiles.js';
 
 const A = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
-const enc = b => { let n = 0n; for (const x of b) n = (n << 8n) | BigInt(x); let o = ''; while (n > 0n) { o = A[Number(n % 58n)] + o; n /= 58n; } return o; };
+const enc = b => {
+  let n = 0n;
+  for (const x of b) n = (n << 8n) | BigInt(x);
+  let o = '';
+  while (n > 0n) {
+    o = A[Number(n % 58n)] + o;
+    n /= 58n;
+  }
+  let z = 0;
+  while (z < b.length && b[z] === 0) z++;
+  return '1'.repeat(z) + o;
+};
 const newWallet = () => { const { publicKey, privateKey } = crypto.generateKeyPairSync('ed25519'); return { address: enc(Buffer.from(publicKey.export({ format: 'jwk' }).x, 'base64url')), sign: m => crypto.sign(null, Buffer.from(m), privateKey).toString('base64') }; };
 
 import { fakeFirestore } from './fake-firestore.js';
