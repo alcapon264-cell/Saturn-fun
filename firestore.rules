@@ -10,11 +10,14 @@ service cloud.firestore {
       allow write: if false;
     }
 
-    // Saturn Social: public message reads only.
-    match /communityRooms/{room}/messages/{msg} {
-      allow read: if true;
-      allow write: if false;
-    }
+    // Saturn Social: public single-message reads;
+// list queries must be limited to 100 messages.
+match /communityRooms/{room}/messages/{msg} {
+  allow get: if true;
+  allow list: if request.query.limit != null
+              && request.query.limit <= 100;
+  allow write: if false;
+}
 
     // Community rate-limit and identity records stay private.
     match /communityUsers/{uid} {
