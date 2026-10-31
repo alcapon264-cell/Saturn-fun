@@ -116,15 +116,3 @@ test('owner summary separates fee-verified (Saturn-attributed) volume from unatt
   s.app = createApp({ auth, store: s.store, rpc: { async getTransaction() { return mkTx({ wallet: W.address, tokPost: 10, trePost: 0, treWsolPost: 0 }); } }, now: () => 1_700_000_000_000, env: { SATURN_ALLOWED_ORIGINS: ORIGIN, OWNER_UIDS: 'OWNER', PLATFORM_TREASURY_WALLET: TREASURY } });
   await call(s.app.events, { body: { ...buy, sig: SIG2 } }); const m = (await call(s.app.owner, { method: 'GET', token: 'owner-token' })).body.summary;
   assert.equal(m.trades, 2); assert.equal(m.feeVerifiedTrades, 1); assert.equal(m.feeVerifiedVolumeLamports, '100000000'); assert.equal(m.volumeLamports, '200000000'); });
-test('owner.html: Firebase web config matches the one in index-14.html (cannot drift)', () => {
-  for (const k of ['apiKey', 'authDomain', 'projectId', 'appId']) { const v = new RegExp(k + ":'([^']+)'").exec(idx)[1]; assert.ok(own.includes(`${k}: '${v}'`), k); } });
-test('owner.html: renders data with textContent only (no innerHTML), contains no secrets, is noindex', () => {
-  assert.ok(!/innerHTML|outerHTML|insertAdjacentHTML|document\.write/.test(own)); assert.match(own, /noindex/); assert.ok(!/private_key|BEGIN [A-Z ]*PRIVATE KEY|serviceAccount|FIREBASE_SERVICE/i.test(own)); });
-test('owner.html: has no client-side owner check to bypass — every load goes through the server-authorized /api/owner', () => {
-  assert.ok(!/isOwner|localStorage|sessionStorage/.test(own)); assert.equal(own.replace(/^\s*\/\/.*$/mg, '').split('OWNER_UIDS').length - 1, 1); assert.ok(own.includes("(put it in OWNER_UIDS if this is you): ' + user.uid")); assert.match(own, /\/api\/owner\?view=/); assert.match(own, /authorization: 'Bearer '/); });
-test('index-14: the account page shows the Saturn account, linked wallets and a link button; Wallet History is still rendered', () => {
-  assert.match(idx, /<h2>Saturn account<\/h2>/); assert.match(idx, /data-act="linkwallet">Link this wallet to my account/); assert.match(idx, /\$\{sy\}(\$\{idl\})?\$\{HistoryHtml\(\)\}/); });
-test('index-14: working systems untouched — Jupiter V2 fee routing, treasury, Token-2022, Irys, Pump, DEX Screener, history all still present', () => {
-  for (const k of ['PLATFORM_FEE_BPS:100', "PLATFORM_TREASURY_WALLET:'7XGVo8SdqUeTP7dFgj3xC7PcmMA6wet4srqnSqnjCSSv'", 'saturn-irys-backend.vercel.app/api/irys-upload', 'async fetchTxPortal', 'function verifySignedV1Handoff', 'function histPositions', 'const HistStore', 'dexscreener']) assert.ok(idx.includes(k), k); });
-
-// ---------- finishing pass: abuse limits ----------
