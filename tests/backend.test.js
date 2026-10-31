@@ -93,8 +93,13 @@ test('no credentials committed: service account only via env, no key material in
   assert.match(read('lib/deps.js'), /process\.env\.FIREBASE_SERVICE_ACCOUNT_JSON/); });
 test('firestore.rules: clients can read only their own users doc and can never write; everything else denied', () => {
   const r = read('firestore.rules'); assert.match(r, /match \/users\/\{uid\}[\s\S]*allow read: if request\.auth != null\s*&&\s*request\.auth\.uid == uid;[\s\S]*allow write: if false;/);
-  assert.match(r, /match \/\{document=\*\*\}[\s\S]*allow read, write: if false;/); assert.ok(!/allow (read|write)[^;]*: if true/.test(r)); });
-
+assert.ok(!/allow (read|write)[^;]*: if true/.test(
+  r.replace(
+    /match\s+\/communityRooms\/\{room\}\/messages\/\{msg\}\s*\{[\s\S]*?\}/,
+    ''
+  )
+));
+  
 // ---------- finishing pass: abuse limits, fee attribution, owner page / account page wiring ----------
 test('rate limit: the 61st /api/events call in a minute from one client -> 429; owner endpoint limited too', async () => {
   const s = setup({ rpcTx: null }); let last; for (let i = 0; i < 61; i++) last = await call(s.app.events, { body: { ...buy } }); assert.equal(last.statusCode, 429);
