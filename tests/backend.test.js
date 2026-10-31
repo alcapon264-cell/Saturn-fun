@@ -92,7 +92,7 @@ test('no credentials committed: service account only via env, no key material in
   for (const f of ['lib/app.js', 'lib/deps.js', 'api/account.js', 'api/events.js', 'api/link-wallet.js', 'api/owner.js']) assert.ok(!/BEGIN (RSA )?PRIVATE KEY|"private_key"|AIza[0-9A-Za-z_-]{30}/.test(read(f)), f);
   assert.match(read('lib/deps.js'), /process\.env\.FIREBASE_SERVICE_ACCOUNT_JSON/); });
 test('firestore.rules: clients can read only their own users doc and can never write; everything else denied', () => {
-  const r = read('firestore.rules'); assert.match(r, /match \/users\/\{uid\}[\s\S]*allow read: if request\.auth != null && request\.auth\.uid == uid;[\s\S]*allow write: if false;/);
+  const r = read('firestore.rules'); assert.match(r, /match \/users\/\{uid\}[\s\S]*allow read: if request\.auth != null\s*&&\s*request\.auth\.uid == uid;[\s\S]*allow write: if false;/);
   assert.match(r, /match \/\{document=\*\*\}[\s\S]*allow read, write: if false;/); assert.ok(!/allow (read|write)[^;]*: if true/.test(r)); });
 
 // ---------- finishing pass: abuse limits, fee attribution, owner page / account page wiring ----------
