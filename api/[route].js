@@ -14,7 +14,7 @@ const routes = {
   'profile-get': 'profileGet',
   'profile-save': 'profileSave',
   'profile-search': 'profileSearch',
-  rpc: 'rpc',
+  rpc: 'rpcProxy',
 };
 
 export default async function handler(req, res) {
