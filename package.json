@@ -7,7 +7,7 @@
     "node": "22.x"
   },
   "scripts": {
-    "test": "node --test tests/backend.test.js tests/profiles.test.js tests/rpc.test.js"
+    "test": "node --test tests/backend.test.js tests/profiles.test.js tests/rpc.test.js tests/community.test.js"
   },
   "dependencies": {
     "@pump-fun/pump-sdk": "^4.3.1",
