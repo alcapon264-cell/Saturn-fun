@@ -1,0 +1,25 @@
+name: Saturn Backend Tests
+
+on:
+push:
+branches: [main]
+workflow_dispatch:
+
+jobs:
+test:
+runs-on: ubuntu-latest
+
+steps:
+  - name: Check out repository
+    uses: actions/checkout@v4
+
+  - name: Set up Node.js
+    uses: actions/setup-node@v4
+    with:
+      node-version: 22
+
+  - name: Install dependencies
+    run: npm install
+
+  - name: Run isolated backend tests
+    run: node --test "tests/profiles.test.js." tests/rpc.test.js tests/community.test.js
