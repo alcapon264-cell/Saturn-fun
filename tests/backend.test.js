@@ -127,3 +127,8 @@ test('index-14: the account page shows the Saturn account, linked wallets and a 
   assert.match(idx, /<h2>Saturn account<\/h2>/); assert.match(idx, /data-act="linkwallet">Link this wallet to my account/); assert.match(idx, /\$\{sy\}(\$\{idl\})?\$\{HistoryHtml\(\)\}/); });
 test('index-14: working systems untouched — Jupiter V2 fee routing, treasury, Token-2022, Irys, Pump, DEX Screener, history all still present', () => {
   for (const k of ['PLATFORM_FEE_BPS:100', "PLATFORM_TREASURY_WALLET:'7XGVo8SdqUeTP7dFgj3xC7PcmMA6wet4srqnSqnjCSSv'", 'saturn-irys-backend.vercel.app/api/irys-upload', 'async fetchTxPortal', 'function verifySignedV1Handoff', 'function histPositions', 'const HistStore', 'dexscreener']) assert.ok(idx.includes(k), k); });
+    )
+  ));
+});
+
+// ---------- finishing pass: abuse limits ----------
