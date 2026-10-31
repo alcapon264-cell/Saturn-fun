@@ -7,7 +7,7 @@
     "node": "22.x"
   },
   "scripts": {
-    "test": "node --test tests/backend.test.js tests/profiles.test.js. tests/rpc.test.js tests/community.test.js"
+    "test": "node --test tests/backend.test.js tests/profiles.test.js tests/rpc.test.js tests/community.test.js"
   },
   "dependencies": {
     "firebase-admin": "^12.7.0",
