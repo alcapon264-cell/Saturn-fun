@@ -21,4 +21,4 @@ jobs:
         run: npm install
 
       - name: Run isolated backend tests
-        run: node --test "tests/profiles.test.js." tests/rpc.test.js tests/community.test.js
+        run: node --test tests/profiles.test.js tests/rpc.test.js tests/community.test.js
