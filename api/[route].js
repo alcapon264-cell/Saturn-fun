@@ -2,6 +2,11 @@ import { getApp } from '../lib/deps.js';
 
 const routes = {
   account: 'account',
+  'chat-eligibility': 'chatEligibility',
+  'chat-history': 'chatHistory',
+  'chat-list': 'chatList',
+  'chat-open': 'chatOpen',
+  'chat-send': 'chatSend',
   'community-post': 'communityPost',
   'community-delete': 'communityDelete',
   events: 'events',
@@ -16,6 +21,7 @@ const routes = {
   'profile-get': 'profileGet',
   'profile-save': 'profileSave',
   'profile-search': 'profileSearch',
+  settings: 'settings',
   rpc: 'rpcProxy',
 };
 
