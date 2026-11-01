@@ -47,3 +47,35 @@ New routes (all `POST`, same CORS/rate-limit guard as the others): `/api/profile
 - **Not stored:** followers, following, P&L, trades (not real server data). Avatar = JPEG data URL ≤32 KB only (no URLs); no image hosting is introduced.
 - **Frontend flag:** `SYNC_CONFIG.PROFILES` ('off' → 'on') after deploying this backend.
 - **Tests:** `npm test` (adds `tests/profiles.test.js`; uses `tests/fake-firestore.js`, a Firestore-SHAPED fake — it does not prove real-Firestore behaviour).
+
+
+## Inbox notifications (added)
+The shared `/api/[route]` router exposes two authenticated POST routes:
+- `/api/notifications-list` returns up to 100 notifications belonging only to the verified account.
+- `/api/notifications-read` accepts `{"ids":[...]}` or `{"all":true}` and marks only that account's records as read.
+
+The backend creates welcome notifications when an account is first created, follow notifications when a linked wallet is followed, and trade notifications for accounts whose linked wallets follow a trader. Trade notifications are created only after `/api/events` has verified the transaction against Solana RPC. Inbox records are server-side Firestore documents in `notifications/`; clients cannot read or write them directly because the catch-all Firestore rule denies client access. These are in-app inbox notifications, not browser push notifications.
+
+## Current frontend routes not implemented by this backend
+The current `Saturn-INBOX-r2.html` also calls `/api/rewards` and `/api/copy-count`; neither is implemented in this ZIP. Do not enable reward claims or treat copy counts as server-confirmed until those backend contracts and their security/ledger rules are implemented and tested. `/api/link-nonce` is also not implemented, but the current frontend uses `LINK_MODE: 'legacy'` and the existing signed `/api/link-wallet` route; leave that mode unchanged.
+
+
+## Inbox notifications (added)
+The shared `/api/[route]` router exposes two authenticated POST routes:
+- `/api/notifications-list` returns up to 100 notifications belonging only to the verified account.
+- `/api/notifications-read` accepts `ids` or `all: true` and marks only that account's records as read.
+
+The backend creates welcome notifications when an account is first created, follow notifications when a linked wallet is followed, and trade notifications for accounts whose linked wallets follow a trader. Trade notifications are created only after `/api/events` has verified the transaction against Solana RPC. Inbox records are server-side Firestore documents in `notifications/`; clients cannot read or write them directly because the catch-all Firestore rule denies client access. These are in-app inbox notifications, not browser push notifications.
+
+## Current frontend routes not implemented by this backend
+The current `Saturn-INBOX-r2.html` also calls `/api/rewards` and `/api/copy-count`; neither is implemented in this ZIP. Do not enable reward claims or treat copy counts as server-confirmed until those backend contracts and their security/ledger rules are implemented and tested. `/api/link-nonce` is also not implemented, but the current frontend uses `LINK_MODE: 'legacy'` and the existing signed `/api/link-wallet` route; leave that mode unchanged.
+
+## Inbox notifications (added)
+The shared `/api/[route]` router exposes two authenticated POST routes:
+- `/api/notifications-list` returns up to 100 notifications belonging only to the verified account.
+- `/api/notifications-read` accepts `ids` or `all: true` and marks only that account's records as read.
+
+The backend creates welcome notifications when an account is first created, follow notifications when a linked wallet is followed, and trade notifications for accounts whose linked wallets follow a trader. Trade notifications are created only after `/api/events` has verified the transaction against Solana RPC. Inbox records are server-side Firestore documents in `notifications/`; clients cannot read or write them directly because the catch-all Firestore rule denies client access. These are in-app inbox notifications, not browser push notifications.
+
+## Current frontend routes not implemented by this backend
+The current `Saturn-INBOX-r2.html` also calls `/api/rewards` and `/api/copy-count`; neither is implemented in this ZIP. Do not enable reward claims or treat copy counts as server-confirmed until those backend contracts and their security/ledger rules are implemented and tested. `/api/link-nonce` is also not implemented, but the current frontend uses `LINK_MODE: 'legacy'` and the existing signed `/api/link-wallet` route; leave that mode unchanged.
