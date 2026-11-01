@@ -23,6 +23,24 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // Private chat: Admin SDK only (lib/chat.js). No client may read or write it.
+    match /privateChats/{c} {
+      allow read, write: if false;
+      match /messages/{m} {
+        allow read, write: if false;
+      }
+    }
+
+    // Settings system (lib/settings.js): Admin SDK only. Preferences, sessions, blocks, reports,
+    // deletion proofs and tombstones are never readable or writable from a browser.
+    match /userSettings/{uid} { allow read, write: if false; }
+    match /sessions/{id} { allow read, write: if false; }
+    match /blocks/{id} { allow read, write: if false; }
+    match /reports/{id} { allow read, write: if false; }
+    match /reportUsers/{uid} { allow read, write: if false; }
+    match /deletionProofs/{id} { allow read, write: if false; }
+    match /deletedAccounts/{id} { allow read, write: if false; }
+
     // Deny everything else.
     match /{document=**} {
       allow read, write: if false;

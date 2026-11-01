@@ -87,3 +87,14 @@ The current `Saturn-INBOX-r2.html` also calls `/api/rewards` and `/api/copy-coun
 - Follow notifications use a stable ID derived from the follow edge, so retrying the same follow action does not create another alert.
 - The inbox returns only the newest follow alert per source wallet, which also hides repeated legacy alerts from the same follower.
 - Existing community messages are not rewritten; the corrected identity is applied to new posts.
+
+
+## Settings system (index-47)
+Everything is on the existing `POST /api/settings` route (no new Vercel function). Actions: `get`, `save`, `session-register|list|revoke|revoke-others|end`, `blocks-list`, `block`, `unblock`, `report`, `delete-account`. Code: `lib/settings.js`; wiring in `lib/app.js`.
+- **No new environment variables.**
+- **Firestore rules:** deploy the updated `firestore.rules` (new collections are explicitly Admin-SDK only).
+- **Firestore index (required for account deletion):** `firestore.indexes.json` adds a collection-group single-field index on `messages.uid` (used to delete a user's community messages). Deploy with `firebase deploy --only firestore:indexes` or create it in the console. Until it exists, deletion answers `deletion_incomplete` and removes nothing about the sign-in.
+- **CORS:** `X-Saturn-Session` is now an allowed request header.
+- **Sessions:** once an account registers a session (the new frontend does this automatically), every authenticated request must carry a live `x-saturn-session` header. Older cached frontends of an account that already registered will get 401 until reloaded.
+- **Limits you should know:** community room messages are public Firestore reads, so a block/private profile cannot hide messages already posted there; new posts from a Private account are anonymous. A revoked device that still holds a valid Google/Privy sign-in can sign in again.
+- Tests: `npm test` (settings tests are in `tests/settings.test.js`). `tests/identity.test.js` and `tests/integration.test.js` are not in the npm script; 2 of their tests fail in the original zip as well (createPair atomicity source-check, integration file).
