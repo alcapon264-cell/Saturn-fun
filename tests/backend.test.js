@@ -112,6 +112,15 @@ test("inbox notifications are private, list only the signed-in user items, and m
   assert.equal((await s.store.get('notifications/n1')).read, true); assert.equal((await s.store.get('notifications/n2')).read, false);
 });
 
+test('inbox collapses repeated follow alerts from the same wallet to the newest one', async () => {
+  const s = setup();
+  await s.store.create('notifications/f1', { uid: 'U1', type: 'follow', from: W.address, ts: 10, read: false });
+  await s.store.create('notifications/f2', { uid: 'U1', type: 'follow', from: W.address, ts: 20, read: false });
+  await s.store.create('notifications/f3', { uid: 'U1', type: 'follow', from: MINT, ts: 15, read: false });
+  const r = await call(s.app.notificationsList, { token: 'user-token' });
+  assert.equal(r.statusCode, 200);
+  assert.deepEqual(r.body.items.map(x => x.id), ['f2', 'f3']);
+});
 test('follow and verified-trade notifications are created for linked followers only', async () => {
   const s = setup({ rpcTx: mkTx({ wallet: W.address, tokPost: 77 }) });
   await s.store.set('walletLinks/' + W.address, { uid: 'U2' });
