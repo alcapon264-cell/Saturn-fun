@@ -79,3 +79,11 @@ The backend creates welcome notifications when an account is first created, foll
 
 ## Current frontend routes not implemented by this backend
 The current `Saturn-INBOX-r2.html` also calls `/api/rewards` and `/api/copy-count`; neither is implemented in this ZIP. Do not enable reward claims or treat copy counts as server-confirmed until those backend contracts and their security/ledger rules are implemented and tested. `/api/link-nonce` is also not implemented, but the current frontend uses `LINK_MODE: 'legacy'` and the existing signed `/api/link-wallet` route; leave that mode unchanged.
+
+
+## Community identity and inbox deduplication patch
+
+- Community posts now resolve `by` and `ph` from the saved public profile for the authenticated user's linked wallet. Client-supplied display names are ignored.
+- Follow notifications use a stable ID derived from the follow edge, so retrying the same follow action does not create another alert.
+- The inbox returns only the newest follow alert per source wallet, which also hides repeated legacy alerts from the same follower.
+- Existing community messages are not rewritten; the corrected identity is applied to new posts.
