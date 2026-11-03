@@ -18,6 +18,8 @@ const routes = {
   'notifications-list': 'notificationsList',
   'notifications-read': 'notificationsRead',
   owner: 'owner',
+  admin: 'admin',
+  report: 'reportSubmit',
   'profile-get': 'profileGet',
   'profile-save': 'profileSave',
   'profile-search': 'profileSearch',
