@@ -28,6 +28,8 @@ function setup() {
   fs.docs.set('adminRoles/MOD1', { role: 'moderator', addedAt: 1 }); fs.docs.set('adminRoles/FIN1', { role: 'finance' }); fs.docs.set('adminRoles/SUP1', { role: 'support' });
   for (const u of ['OWNER1', 'MOD1', 'USER1', 'USER2', 'FIN1', 'SUP1']) fs.docs.set('users/' + u, { uid: u, email: u.toLowerCase() + '@x.test', wallets: u === 'USER1' ? [WALLET] : [], lastSeen: NOW - 1000, createdAt: 1 });
   fs.docs.set('walletLinks/' + WALLET, { uid: 'USER1' });
+  fs.docs.set('profiles/' + WALLET, { wallet: WALLET, uid: 'USER1', username: 'cato_user', displayName: 'Cato Beligin', nameLower: 'cato beligin' });
+  fs.docs.set('usernames/cato_user', { wallet: WALLET, uid: 'USER1' });
   fs.docs.set('events/' + SIG, { type: 'launch', sig: SIG, wallet: WALLET, mint: MINT, uid: 'USER1', recordedAt: NOW - 5000, blockTime: NOW - 6000, launchKind: 'SATURN_NATIVE' });
   fs.docs.set('events/t1', { type: 'trade', sig: 't1', wallet: WALLET, mint: MINT, side: 'buy', solDelta: '-1000000000', treasuryLamportsDelta: '10000000', feeVerified: true, uid: 'USER1', recordedAt: NOW - 4000 });
   fs.docs.set('errors/e1', { type: 'tx_failed', sig: 'e1', wallet: WALLET, mint: MINT, error: '{"x":1}', recordedAt: NOW - 3000 });
@@ -124,7 +126,7 @@ test('admin: overview uses real records only and labels unavailable data', async
 });
 test('admin: user search by uid, email, wallet; user detail', async () => {
   const s = setup();
-  for (const q of ['USER1', 'user1@x.test', WALLET]) { const r = await s.adm('mod', { action: 'users-search', q }); assert.equal(r.body.users[0].uid, 'USER1', q); }
+  for (const q of ['USER1', 'user1@x.test', WALLET, 'cato_user', '@cato_user', 'Cato', 'cato bel']) { const r = await s.adm('mod', { action: 'users-search', q }); assert.equal(r.body.users[0].uid, 'USER1', q); if (!['USER1', 'user1@x.test', WALLET].includes(q)) assert.equal(r.body.users[0].displayName, 'Cato Beligin', q); }
   assert.equal((await s.adm('mod', { action: 'users-search', q: 'a' })).statusCode, 400);
   const u = (await s.adm('mod', { action: 'user-get', uid: 'USER1' })).body;
   assert.equal(u.tokensCreated[0].mint, MINT); assert.equal(u.moderation.enforced, false);
