@@ -112,3 +112,8 @@ Everything is on the existing `POST /api/settings` route (no new Vercel function
 This is a safe backend foundation, not a live reward-payment integration. Pump.fun creator-fee sharing still needs to be configured in the actual launch transaction and explicitly authorized by the creator. External trader cashback/recovery integration is not connected. No ClaimFreeSOL API has been assumed. No Saturn 8% recovery fee is collected by this backend. Keep claims disabled until the actual external transaction flow and fee disclosure/authorization are verified.
 
 Run `npm test` before deployment. Deploy this backend separately; do not replace the Saturn frontend HTML with this ZIP. The Rewards HTML already calls `/api/rewards` and can read the safe empty summary, but claim buttons will correctly report that payouts are not open.
+
+## Admin dashboard backend (added 2026-11-03)
+
+Separate admin app: `https://saturn-admin.netlify.app` (see `ADMIN-SETUP.md` for provisioning, environment variables and deployment).
+New code only: `lib/admin.js` (`POST /api/admin`), `lib/reports.js` (`POST /api/report`), `tests/admin.test.js`. Small additive edits: `api/[route].js` (2 routes), `lib/app.js` (wiring + 2 handlers), `lib/deps.js` (read-only `rpc.getHealth`), `firestore.rules` (explicit deny rules), `package.json` (test script).

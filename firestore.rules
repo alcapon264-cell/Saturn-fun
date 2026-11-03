@@ -41,6 +41,15 @@ service cloud.firestore {
     match /deletionProofs/{id} { allow read, write: if false; }
     match /deletedAccounts/{id} { allow read, write: if false; }
 
+    // Admin dashboard (lib/admin.js, lib/reports.js): Admin SDK only. Roles, audit, logins, security alerts and moderation records
+    // are never readable or writable from a browser, including by admins (the dashboard goes through POST /api/admin).
+    match /adminRoles/{id} { allow read, write: if false; }
+    match /adminAudit/{id} { allow read, write: if false; }
+    match /adminLogins/{id} { allow read, write: if false; }
+    match /adminSecurity/{id} { allow read, write: if false; }
+    match /moderation/{id} { allow read, write: if false; }
+    match /rewardsLaunches/{id} { allow read, write: if false; }
+
     // Deny everything else.
     match /{document=**} {
       allow read, write: if false;
