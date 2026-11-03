@@ -23,6 +23,7 @@ const routes = {
   'profile-search': 'profileSearch',
   settings: 'settings',
   rpc: 'rpcProxy',
+  rewards: 'rewards',
 };
 
 export default async function handler(req, res) {
