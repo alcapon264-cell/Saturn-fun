@@ -98,3 +98,17 @@ Everything is on the existing `POST /api/settings` route (no new Vercel function
 - **Sessions:** once an account registers a session (the new frontend does this automatically), every authenticated request must carry a live `x-saturn-session` header. Older cached frontends of an account that already registered will get 401 until reloaded.
 - **Limits you should know:** community room messages are public Firestore reads, so a block/private profile cannot hide messages already posted there; new posts from a Private account are anonymous. A revoked device that still holds a valid Google/Privy sign-in can sign in again.
 - Tests: `npm test` (settings tests are in `tests/settings.test.js`). `tests/identity.test.js` and `tests/integration.test.js` are not in the npm script; 2 of their tests fail in the original zip as well (createPair atomicity source-check, integration file).
+
+## Rewards foundation (added 2026-11-03)
+
+`POST /api/rewards` is now routed through the authenticated Saturn backend. It supports:
+
+- `action: "summary"`: requires the supplied wallet to be linked to the authenticated UID and returns an explicit empty ledger. It does not estimate monetary rewards from trade volume.
+- `action: "register-launch"`: accepts only a launch already recorded by `/api/events` after on-chain verification, and checks wallet + mint + signature match. The record stores a proposed 80/20 creator/Saturn split as *not authorized and not configured*; it does not modify Pump.fun launch instructions or claim that the split is active.
+- `action: "claim"`: fails closed with `payouts_disabled` until a verified reward source, payout ledger, and audited payout adapter are configured.
+
+### Important deployment status
+
+This is a safe backend foundation, not a live reward-payment integration. Pump.fun creator-fee sharing still needs to be configured in the actual launch transaction and explicitly authorized by the creator. External trader cashback/recovery integration is not connected. No ClaimFreeSOL API has been assumed. No Saturn 8% recovery fee is collected by this backend. Keep claims disabled until the actual external transaction flow and fee disclosure/authorization are verified.
+
+Run `npm test` before deployment. Deploy this backend separately; do not replace the Saturn frontend HTML with this ZIP. The Rewards HTML already calls `/api/rewards` and can read the safe empty summary, but claim buttons will correctly report that payouts are not open.
