@@ -53,6 +53,20 @@ test('account: requires sign-in; creates user from the VERIFIED token uid only',
   const s = setup(); assert.equal((await call(s.app.account, {})).statusCode, 401);
   const r = await call(s.app.account, { token: 'user-token', body: { uid: 'OWNER' } }); assert.equal(r.statusCode, 200); assert.equal(r.body.uid, 'U1'); assert.ok(await s.store.get('users/U1')); assert.equal(await s.store.get('users/OWNER'), null); });
 const link = (w, uid, issued = 1_700_000_000_000) => { const message = linkMessage(uid, w.address, issued); return { wallet: w.address, message, signature: w.sign(message) }; };
+test('banned account can see its ban status but is blocked from authenticated Saturn API routes; lift restores access', async () => {
+  const s = setup();
+  await s.store.set('moderation/U1', { uid: 'U1', status: 'banned', enforced: true, ban: { reason: 'Repeated abuse', since: 1_700_000_000_000 } });
+  const account = await call(s.app.account, { token: 'user-token' });
+  assert.equal(account.statusCode, 200);
+  assert.equal(account.body.access, 'banned');
+  assert.equal(account.body.moderation.status, 'banned');
+  const blocked = await call(s.app.linkWallet, { token: 'user-token', body: { wallet: W.address } });
+  assert.equal(blocked.statusCode, 403);
+  assert.equal(blocked.body.error, 'account_banned');
+  await s.store.set('moderation/U1', { uid: 'U1', status: 'none', enforced: false, ban: null });
+  const restored = await call(s.app.linkWallet, { token: 'user-token', body: link(W, 'U1') });
+  assert.equal(restored.statusCode, 200);
+});
 test('link-wallet: valid wallet signature links the wallet to the account', async () => { const s = setup(); const r = await call(s.app.linkWallet, { token: 'user-token', body: link(W, 'U1') }); assert.equal(r.statusCode, 200); assert.deepEqual(r.body.wallets, [W.address]); assert.equal((await s.store.get('walletLinks/' + W.address)).uid, 'U1'); });
 test('link-wallet: signature from a DIFFERENT key is rejected', async () => { const o = newWallet(), b = link(W, 'U1'); b.signature = o.sign(b.message); assert.equal((await call(setup().app.linkWallet, { token: 'user-token', body: b })).statusCode, 400); });
 test('link-wallet: message bound to another uid is rejected', async () => assert.equal((await call(setup().app.linkWallet, { token: 'user-token', body: link(W, 'U2') })).statusCode, 400));

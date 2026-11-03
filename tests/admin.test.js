@@ -191,21 +191,24 @@ test('reports: status workflow, notes, reason required, history, audit log', asy
   assert.equal(audit.length, 2); assert.ok(audit.every(a => a.actor === 'MOD1' && a.action === 'report-update' && a.ok));
 });
 
-// ---------------------------------------------------------------- record-only moderation
-test('moderation: warn/restrict/lift are record-only, validated and audited', async () => {
+// ---------------------------------------------------------------- moderation
+test('moderation: warn/restrict are records; ban is enforced and lift clears it', async () => {
   const s = setup();
   assert.equal((await s.adm('mod', { action: 'moderate-user', uid: 'USER1', type: 'warn', reason: 'Spam posts' })).body.status, 'warned');
   const r = await s.adm('mod', { action: 'moderate-user', uid: 'USER1', type: 'restrict', reason: 'Repeated scam launches', reportId: 'rep000' });
   assert.equal(r.body.status, 'restricted'); assert.equal(r.body.enforced, false);
-  assert.equal((await s.adm('mod', { action: 'moderate-user', uid: 'USER1', type: 'ban', reason: 'xxxxxxx' })).statusCode, 400);
+  const ban = await s.adm('mod', { action: 'moderate-user', uid: 'USER1', type: 'ban', reason: 'Repeated account abuse' });
+  assert.equal(ban.statusCode, 200); assert.equal(ban.body.status, 'banned'); assert.equal(ban.body.enforced, true);
   assert.equal((await s.adm('mod', { action: 'moderate-user', uid: 'USER1', type: 'warn', reason: 'x' })).body.error, 'reason_required');
   assert.equal((await s.adm('mod', { action: 'moderate-user', uid: 'OWNER1', type: 'warn', reason: 'testing now' })).statusCode, 403);
   assert.equal((await s.adm('mod', { action: 'moderate-user', uid: 'FIN1', type: 'warn', reason: 'testing now' })).statusCode, 403);
   assert.equal((await s.adm('mod', { action: 'moderate-user', uid: 'GHOST1', type: 'warn', reason: 'testing now' })).statusCode, 404);
-  const u = (await s.adm('mod', { action: 'user-get', uid: 'USER1' })).body.moderation; assert.equal(u.history.length, 2); assert.equal(u.enforced, false);
+  const u = (await s.adm('mod', { action: 'user-get', uid: 'USER1' })).body.moderation; assert.equal(u.history.length, 3); assert.equal(u.enforced, true);
   assert.equal((await s.adm('mod', { action: 'moderation-lift', uid: 'USER1', reason: 'Appeal accepted' })).body.status, 'none');
   assert.equal(s.fs.docs.get('moderation/USER1').restriction, null);
-  assert.equal([...s.fs.docs.keys()].filter(k => k.startsWith('adminAudit/')).length, 3);
+  assert.equal(s.fs.docs.get('moderation/USER1').ban, null);
+  assert.equal(s.fs.docs.get('moderation/USER1').enforced, false);
+  assert.equal([...s.fs.docs.keys()].filter(k => k.startsWith('adminAudit/')).length, 4);
   assert.equal(s.fs.docs.get('users/USER1').restricted, undefined, 'no user record is altered');
 });
 
