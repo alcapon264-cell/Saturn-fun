@@ -6,6 +6,7 @@ const routes = {
   'chat-history': 'chatHistory',
   'chat-list': 'chatList',
   'chat-open': 'chatOpen',
+  'chat-read': 'chatRead',
   'chat-send': 'chatSend',
   'community-post': 'communityPost',
   'community-delete': 'communityDelete',
