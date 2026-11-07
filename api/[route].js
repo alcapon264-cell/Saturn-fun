@@ -31,6 +31,9 @@ const routes = {
   settings: 'settings',
   rpc: 'rpcProxy',
   rewards: 'rewards',
+  'evm-config': 'evmConfig',
+  'evm-rpc': 'evmRpc',
+  'evm-quote': 'evmQuote',
 };
 
 export default async function handler(req, res) {
