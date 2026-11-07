@@ -23,15 +23,24 @@ function mock(extraEnv = {}, overrides = {}) {
     bsc_mainnet: '0x38'
   };
   const fetchImpl = async (url, options = {}) => {
-    calls.push({ url: String(url), options });
-    if (String(url).startsWith('https://api.0x.org/')) {
+    const address = String(url);
+    calls.push({ url: address, options });
+    if (address.startsWith('https://api.0x.org/')) {
       return overrides.zeroX ? overrides.zeroX(url, options) :
         jr({ liquidityAvailable: true, sellAmount: '5', buyAmount: '9', minBuyAmount: '8',
           transaction: { to: A, data: '0x12', value: '5', gas: '21000', gasPrice: '2' } });
     }
-    const slug = String(url).split('/').pop();
     const request = JSON.parse(options.body);
+    if (address === 'https://polygon-bor-rpc.publicnode.com') {
+      if (overrides.fallback) return overrides.fallback(request, url, options);
+      if (request.method === 'eth_chainId') return jr({ jsonrpc: '2.0', id: 1, result: '0x89' });
+      if (request.method === 'eth_syncing') return jr({ jsonrpc: '2.0', id: 1, result: false });
+      return jr({ jsonrpc: '2.0', id: 1, result: '0xpolygon' });
+    }
+    const slug = address.split('/').pop();
+    if (slug === 'polygon_mainnet' && overrides.primaryPolygon) return overrides.primaryPolygon(request, url, options);
     if (request.method === 'eth_chainId') return jr({ jsonrpc: '2.0', id: 1, result: ids[slug] });
+    if (request.method === 'eth_syncing') return jr({ jsonrpc: '2.0', id: 1, result: false });
     return jr({ jsonrpc: '2.0', id: 1, result: '0xabc' });
   };
   return { evm: createEvm({ env, fetchImpl, limiter: overrides.limiter }), calls, env };
@@ -59,7 +68,7 @@ test('config verifies each chain id and never returns secrets or provider URLs',
   const { evm } = mock();
   const result = await evm.config({ method: 'GET', ip: '1.2.3.4' });
   assert.equal(result.status, 200);
-  assert.deepEqual(Object.keys(result.body.chains), ['eth', 'base', 'arb', 'poly', 'robinhood', 'bsc']);
+  assert.deepEqual(Object.keys(result.body.chains).sort(), ['arb', 'base', 'bsc', 'eth', 'poly', 'robinhood']);
   for (const chain of Object.values(result.body.chains)) {
     assert.equal(chain.rpc, true);
     assert.equal(chain.swap, true);
@@ -70,13 +79,59 @@ test('config verifies each chain id and never returns secrets or provider URLs',
   assert.ok(!serialized.includes('api.blockvectra.com'));
 });
 
-test('missing BlockVectra key reports all chains unavailable', async () => {
+test('missing BlockVectra key leaves non-Polygon chains unavailable but Polygon can use its fixed fallback', async () => {
   const { evm } = mock({ BLOCKVECTRA_API_KEY: undefined });
   const result = await evm.config({ method: 'GET' });
-  for (const chain of Object.values(result.body.chains)) {
-    assert.equal(chain.rpc, false);
-    assert.equal(chain.reason, 'rpc_not_configured');
+  for (const key of ['eth', 'base', 'arb', 'robinhood', 'bsc']) {
+    assert.equal(result.body.chains[key].rpc, false);
+    assert.equal(result.body.chains[key].reason, 'rpc_not_configured');
   }
+  assert.equal(result.body.chains.poly.rpc, true);
+});
+
+
+test('Polygon uses BlockVectra when it reports chain 137 and is not syncing', async () => {
+  const { evm, calls } = mock();
+  assert.deepEqual(await evm.verified('poly'), { ok: true });
+  assert.ok(calls.some(c => c.url === 'https://api.blockvectra.com/v1/polygon_mainnet'));
+  assert.ok(!calls.some(c => c.url === 'https://polygon-bor-rpc.publicnode.com'));
+});
+
+test('Polygon switches to PublicNode when BlockVectra reports syncing and serves RPC from fallback', async () => {
+  const { evm, calls } = mock({}, { primaryPolygon: request => {
+    if (request.method === 'eth_chainId') return jr({ result: '0x89' });
+    if (request.method === 'eth_syncing') return jr({ result: { startingBlock: '0x1', currentBlock: '0x2', highestBlock: '0x3' } });
+    return jr({ result: '0xprimary' });
+  } });
+  assert.deepEqual(await evm.verified('poly'), { ok: true });
+  const result = await evm.rpc({ method: 'POST', query: { chain: 'poly' }, body: { method: 'eth_blockNumber' } });
+  assert.equal(result.status, 200);
+  assert.equal(result.body.result, '0xpolygon');
+  assert.ok(calls.some(c => c.url === 'https://polygon-bor-rpc.publicnode.com'));
+});
+
+test('Polygon switches to PublicNode when BlockVectra is unreachable', async () => {
+  const { evm, calls } = mock({}, { primaryPolygon: async () => { throw new Error('primary offline'); } });
+  assert.deepEqual(await evm.verified('poly'), { ok: true });
+  assert.ok(calls.some(c => c.url === 'https://polygon-bor-rpc.publicnode.com'));
+});
+
+test('non-Polygon chains never use the Polygon fallback', async () => {
+  const { evm, calls } = mock();
+  assert.deepEqual(await evm.verified('base'), { ok: true });
+  assert.ok(calls.every(c => c.url !== 'https://polygon-bor-rpc.publicnode.com'));
+});
+
+test('Polygon fallback rejects a provider that reports the wrong chain id', async () => {
+  const { evm } = mock({}, {
+    primaryPolygon: async () => { throw new Error('primary offline'); },
+    fallback: request => request.method === 'eth_chainId'
+      ? jr({ result: '0x1' })
+      : jr({ result: false })
+  });
+  const result = await evm.verified('poly');
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, 'chain_id_mismatch');
 });
 
 test('removed chains are rejected by RPC and quote routes', async () => {
