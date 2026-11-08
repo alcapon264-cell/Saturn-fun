@@ -34,6 +34,7 @@ const routes = {
   'evm-config': 'evmConfig',
   'evm-rpc': 'evmRpc',
   'evm-quote': 'evmQuote',
+  'evm-holders': 'evmHolders',
 };
 
 export default async function handler(req, res) {
