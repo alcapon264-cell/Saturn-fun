@@ -117,3 +117,15 @@ Run `npm test` before deployment. Deploy this backend separately; do not replace
 
 Separate admin app: `https://saturn-admin.netlify.app` (see `ADMIN-SETUP.md` for provisioning, environment variables and deployment).
 New code only: `lib/admin.js` (`POST /api/admin`), `lib/reports.js` (`POST /api/report`), `tests/admin.test.js`. Small additive edits: `api/[route].js` (2 routes), `lib/app.js` (wiring + 2 handlers), `lib/deps.js` (read-only `rpc.getHealth`), `firestore.rules` (explicit deny rules), `package.json` (test script).
+
+
+## EVM token holders (Moralis)
+
+The public `GET /api/evm-holders` route is available for holder lists on Ethereum, Base, Arbitrum, Polygon and BNB Smart Chain. Robinhood is not supported by the current provider adapter. Configure these server-side variables in Vercel:
+
+| Name | Value |
+|---|---|
+| `EVM_HOLDERS_PROVIDER` | `moralis` |
+| `EVM_HOLDERS_API_KEY` | Your Moralis API key |
+
+Do not put the API key in the frontend, GitHub, or this ZIP. Add the variables in Vercel → Settings → Environment Variables (Production), then redeploy. The route returns an explicit unavailable/error response if the provider is not configured or returns an invalid response; it never fabricates holder data. Provider response shape still needs a live post-deployment verification.
