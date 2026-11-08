@@ -119,13 +119,14 @@ Separate admin app: `https://saturn-admin.netlify.app` (see `ADMIN-SETUP.md` for
 New code only: `lib/admin.js` (`POST /api/admin`), `lib/reports.js` (`POST /api/report`), `tests/admin.test.js`. Small additive edits: `api/[route].js` (2 routes), `lib/app.js` (wiring + 2 handlers), `lib/deps.js` (read-only `rpc.getHealth`), `firestore.rules` (explicit deny rules), `package.json` (test script).
 
 
-## EVM token holders (Moralis)
+## EVM token holders (Routescan)
 
-The public `GET /api/evm-holders` route is available for holder lists on Ethereum, Base, Arbitrum, Polygon and BNB Smart Chain. Robinhood is not supported by the current provider adapter. Configure these server-side variables in Vercel:
+The public `GET /api/evm-holders` route uses Routescan's Data API ERC20 holders endpoint. Ethereum (`eth`, chain ID `1`) is enabled because it is the only Saturn EVM network confirmed in Routescan's current published supported-chain catalog. Base, Arbitrum, Polygon and BNB Smart Chain return `unsupported_chain` until Routescan lists/indexes them for this endpoint; do not assume they work just because they are EVM networks.
+
+Routescan's Free (Keyless) tier requires no account or API key. Published limits are 2 requests/second and 10,000 requests/day. Optional server-side variable:
 
 | Name | Value |
 |---|---|
-| `EVM_HOLDERS_PROVIDER` | `moralis` |
-| `EVM_HOLDERS_API_KEY` | Your Moralis API key |
+| `ROUTESCAN_API_KEY` | Optional Routescan API key; sent only in the server-side `apikey` request header |
 
-Do not put the API key in the frontend, GitHub, or this ZIP. Add the variables in Vercel → Settings → Environment Variables (Production), then redeploy. The route returns an explicit unavailable/error response if the provider is not configured or returns an invalid response; it never fabricates holder data. Provider response shape still needs a live post-deployment verification.
+Do not put an API key in the frontend, GitHub, or this ZIP. If using Routescan's free tier publicly, comply with its attribution requirement by displaying “Powered by Routescan.io APIs” in the app (Routescan documents an exception for personal/private usage). The route returns explicit unavailable/error responses for unsupported chains, rate limits, provider failures or malformed data; it never fabricates holder data.
