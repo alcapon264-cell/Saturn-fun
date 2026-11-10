@@ -1,0 +1,19 @@
+{
+  "name": "saturn-backend",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": "22.x"
+  },
+  "scripts": {
+    "test": "node --test tests/backend.test.js tests/profiles.test.js tests/rpc.test.js tests/chat.test.js tests/settings.test.js tests/rewards.test.js tests/admin.test.js tests/community.test.js tests/chat-mutual.test.js tests/evm.test.js tests/evm-holders.test.js tests/bnbHolders.test.js"
+  },
+  "dependencies": {
+    "firebase-admin": "^12.7.0",
+    "@irys/upload": "^0.0.15",
+    "@irys/upload-solana": "^0.1.8"
+  },
+  "overrides": {
+    "uuid": "^9.0.1"
+  }
+}
