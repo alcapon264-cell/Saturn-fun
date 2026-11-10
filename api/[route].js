@@ -34,7 +34,7 @@ const routes = {
   'evm-config': 'evmConfig',
   'evm-rpc': 'evmRpc',
   'evm-quote': 'evmQuote',
-  'evm-holders': 'evmHolders',
+  'bnb-holders': 'bnbHolders',
 };
 
 export default async function handler(req, res) {
