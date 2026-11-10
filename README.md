@@ -1,32 +1,43 @@
-# Saturn BNB holders — shared-guard backend patch
+# Saturn EVM WebSocket relay (separate Render service)
 
-This patch adds BNB Chain token-holder data to the existing Saturn backend without a standalone API handler or a second CORS/authentication implementation.
+This is an additive, standalone service. It does not change the Vercel HTTP API, existing EVM RPC routes, frontend, or Solana WebSocket service.
 
-## Changes
-- Adds `lib/bnbHolders.js`, a GoldRush/Covalent BNB mainnet adapter.
-- Adds `/api/bnb-holders` to `api/[route].js`.
-- Calls the adapter from `lib/app.js` through Saturn's existing `guard()`.
-- Reuses `SATURN_ALLOWED_ORIGINS` and `SATURN_EXTRA_ALLOWED_ORIGINS`.
-- Uses the same public-data policy and per-IP request limit as `/api/evm-holders`. This is public on-chain holder data, not private account data.
-- Adds mocked tests and appends them to the existing `npm test` command without removing current tests.
+## What it does
 
-## Apply
-1. Copy `lib/bnbHolders.js` into the backend repository's `lib/` folder.
-2. Copy `tests/bnbHolders.test.js` into `tests/`.
-3. Run `node scripts/apply-bnb-holders-integration.mjs` from the repository root. It makes targeted changes to `lib/app.js`, `api/[route].js`, and `package.json`, and stops if its expected anchors are missing.
-4. Review the diff. Confirm the route is exported from `createApp()` and mapped in `api/[route].js`.
-5. Run `npm test`.
-6. Commit and deploy only after the diff and tests pass.
+- Uses the existing server-side `BLOCKVECTRA_API_KEY`.
+- Reads `GET https://api.blockvectra.com/v1/chains` and only connects to chains explicitly reporting `ws: true` and `subscriptions` containing `newHeads`.
+- Maintains at most one upstream BlockVectra WebSocket connection per supported Saturn EVM chain (ETH, Base, Arbitrum, Polygon, Robinhood, BNB).
+- Broadcasts read-only block-head notifications to downstream clients at `/live`.
+- Provides `/healthz`, heartbeat pings, jittered reconnects, and connection status snapshots.
+- Does not expose the BlockVectra API key, accept client RPC commands, or modify trading/signing/launch flows.
 
-## Vercel environment
-Set `GOLDRUSH_API_KEY` in the **Production** environment for `saturn-backend`, then redeploy. Never put this key in HTML, GitHub, a query string, or a public frontend variable.
+## Render setup
 
-No `ALLOWED_ORIGINS` variable is required. The route uses Saturn's shared `SATURN_ALLOWED_ORIGINS` / `SATURN_EXTRA_ALLOWED_ORIGINS` CORS policy. The shared guard handles OPTIONS and permits `Authorization` and `X-Saturn-Session`.
+Create a **new Web Service** from this folder (`evm-ws`) in the Saturn backend repository. Do not replace the existing Solana WS service.
 
-## Endpoint
-`GET /api/bnb-holders?token=0x...&limit=50&cursor=0`
+- Runtime: Node
+- Build command: `npm install`
+- Start command: `npm start`
+- Environment variables:
+  - `BLOCKVECTRA_API_KEY`: existing BlockVectra key (secret)
+  - `ALLOWED_ORIGINS`: comma-separated exact Saturn frontend origins, e.g. `https://saturn-fun.netlify.app`
+  - `NODE_ENV`: `production`
 
-The route uses GoldRush `bsc-mainnet`, validates provider rows, and returns only real provider metadata. It does not fabricate holders, supply, or percentages.
+Render supplies `PORT`. Health check path: `/healthz`.
 
-## Test scope
-Mocked tests cover missing key, address/cursor validation, endpoint selection, server-side key handling, pagination, zero-balance filtering, malformed provider data, provider auth/rate-limit/network errors, deduplication, and cache reuse. They do not verify the live GoldRush key entitlement or deployed Vercel route. After deployment, verify one known BNB token with a Saturn session and inspect Vercel function logs.
+## Client contract
+
+Connect from the Saturn frontend to `wss://<new-render-service-host>/live`.
+
+Messages:
+- `evm_ws_snapshot`: initial per-chain support/connection state.
+- `evm_ws_status`: connection/subscription changes.
+- `evm_head`: `{ chain, chainId, number, hash, parentHash, timestamp, receivedAt }`.
+
+Use `evm_head` as a signal to coalesce/trigger the existing authoritative market-data refresh for that chain. Do not calculate market cap from block headers. Keep the existing HTTP/DexScreener/GeckoTerminal data path as the source of truth and fallback. Debounce/coalesce refreshes (one in-flight refresh per chain) to avoid CU/API overload.
+
+## Important scope boundary
+
+This first service streams new block heads only. It deliberately does not subscribe to all logs: BlockVectra requires an address or `topic0` filter, and Saturn's current backend package does not contain the token/pool address registry needed to create precise per-token subscriptions. Adding broad/unfiltered logs is invalid and wasteful. Token/pool-specific logs can be added once the frontend/backend supplies verified pool addresses and event topics.
+
+The service is not active until deployed and the frontend is separately connected to its `/live` URL. No production deployment or frontend change is performed by this ZIP.
