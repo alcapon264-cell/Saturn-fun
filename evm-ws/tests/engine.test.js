@@ -7,7 +7,7 @@ import { createQuoteService } from '../src/quote.js';
 import { createMetrics } from '../src/metrics.js';
 import { CHAIN_CONFIG } from '../src/chains.js';
 import { SEL, lc } from '../src/abi.js';
-import { createWorld, addr, buildPool, addRefPool, makeFetch, HIGH, LOW, v2SwapLog, v2SyncLog, v3SwapLog, pancakeV3SwapLog, asRemoved, sqrtPFromHumanPrice, tick } from './helpers.js';
+import { createWorld, addr, buildPool, addRefPool, makeFetch, HIGH, LOW, v2SwapLog, v2SyncLog, v3SwapLog, pancakeV3SwapLog, v4SwapLog, asRemoved, sqrtPFromHumanPrice, tick } from './helpers.js';
 
 const close = (a, b, rel = 1e-6) => assert.ok(Math.abs(a - b) <= Math.abs(b) * rel + 1e-18, `${a} !~ ${b}`);
 
@@ -309,5 +309,28 @@ test('RPC economy: discovery costs a small, fixed number of HTTP requests and sw
   for (let i = 0; i < 100; i++) S.engine.onLog('arb', sw(6000 + i, 0.02 + i * 1e-6));
   assert.equal(S.world.calls.total, total, '100 swaps => 0 additional RPC calls');
   assert.ok(batches <= 12, 'discovery used batched requests (' + batches + ')');
+  S.engine.shutdown();
+});
+
+test('Robinhood Uniswap V4: Initialize discovery -> StateView snapshot -> PoolManager Swap -> live USD price and FDV', async () => {
+  const fetchImpl = makeFetch({ 'api.coinbase.com': { data: { amount: '3000' } } });
+  const S = setup('robinhood', { fetchImpl });
+  const cfg = CHAIN_CONFIG.robinhood, manager = cfg.protocols.find(p => p.id === 'uniswap_v4').manager;
+  const poolId = '0x' + 'ab'.repeat(32), initialPrice = 0.001;
+  S.world.token('robinhood', LOW, { decimals: 18, supply: 10n ** 27n });
+  // V4 uses native ETH (address zero) as currency0; token is currency1.
+  S.world.v4Pool('robinhood', poolId, LOW, '0x' + '0'.repeat(40), sqrtPFromHumanPrice(1 / initialPrice, 18, 18), 10n ** 20n);
+  const r = await S.engine.track('robinhood', LOW, 'v4-s1', S.listener);
+  assert.equal(r.status, 'live');
+  const snap = S.markets()[0];
+  close(snap.priceQuote, initialPrice, 1e-6); close(snap.priceUsd, initialPrice * 3000, 1e-5);
+  assert.equal(snap.primaryPool.protocol, 'uniswap_v4'); assert.equal(snap.primaryPool.poolId, poolId);
+  assert.equal(snap.liquidityUsd, null, 'V4 active liquidity is not misreported as TVL');
+  const nextPrice = 0.008, prev = S.markets().length;
+  S.engine.onLog('robinhood', v4SwapLog({ manager, poolId, block: 1002, logIndex: 1, amount0: 8n * 10n ** 18n, amount1: -(1000n * 10n ** 18n), sqrtP: sqrtPFromHumanPrice(1 / nextPrice, 18, 18) }));
+  const update = S.markets().slice(prev).at(-1);
+  assert.equal(update.trigger, 'swap'); assert.equal(update.trade.side, 'buy');
+  close(update.priceQuote, nextPrice, 1e-6); close(update.priceUsd, nextPrice * 3000, 1e-5);
+  close(update.fdvUsd, nextPrice * 3000 * 1e9, 1e-5);
   S.engine.shutdown();
 });

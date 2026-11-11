@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { v2, uniswapV3, pancakeV3, HANDLERS, handlerFor, ratioToNumber } from '../src/protocols.js';
+import { TOPIC } from '../src/abi.js';
 import { addr, v2SwapLog, v2SyncLog, v3SwapLog, pancakeV3SwapLog, sqrtPFromHumanPrice } from './helpers.js';
 
 const close = (a, b, rel = 1e-9) => assert.ok(Math.abs(a - b) <= Math.abs(b) * rel, `${a} !~ ${b}`);
@@ -86,3 +87,15 @@ test('malformed logs throw (and are caught by the engine) instead of producing a
   assert.throws(() => uniswapV3.decode(v3SwapLog({ pool: POOL, block: 1, amount0: 1n, amount1: -1n, sqrtP: 0n }), ctx(true)), /malformed_log/);
 });
 test('ratioToNumber keeps precision for tiny prices', () => { close(ratioToNumber(1n, 10n ** 12n), 1e-12); assert.throws(() => ratioToNumber(1n, 0n)); });
+
+test('V4: PoolManager Swap event is poolId-scoped and decodes signed amounts + sqrt price', async () => {
+  const { uniswapV4 } = await import('../src/protocols.js');
+  const poolId = '0x' + 'ab'.repeat(32), sqrtP = sqrtPFromHumanPrice(0.025, 18, 6);
+  const log = { blockNumber: '0x9', logIndex: '0x1', blockHash: '0x' + '11'.repeat(32), transactionHash: '0x' + '22'.repeat(32),
+    topics: [TOPIC.v4Swap, poolId, '0x' + '0'.repeat(64)],
+    data: '0x' + [-(1000n * 10n ** 18n), 25_000_000n, sqrtP, 123456n, 0n, 3000n].map(x => BigInt.asUintN(256, x).toString(16).padStart(64, '0')).join('') };
+  const c = { ...ctx(true), poolId };
+  const decoded = uniswapV4.decode(log, c);
+  assert.equal(decoded.trade.side, 'buy'); close(decoded.trade.execPriceQuote, 0.025); close(decoded.price, 0.025);
+  assert.equal(uniswapV4.matches(log, c), true); assert.equal(uniswapV4.matches(log, { ...c, poolId: '0x' + 'cd'.repeat(32) }), false);
+});

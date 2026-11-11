@@ -20,11 +20,11 @@ export function sqrtPFromHumanPrice(priceToken1PerToken0, dec0, dec1) {
 export function createWorld() {
   const chains = {};
   const calls = { total: 0, byMethod: {}, batches: 0, sel: {} };
-  const ch = key => chains[key] || (chains[key] = { id: CHAIN_CONFIG[key].chainId, code: new Set(), erc20: new Map(), factories: new Map(), pools: new Map(), logs: [], block: 1000, failGetLogs: false, down: false });
+  const ch = key => chains[key] || (chains[key] = { id: CHAIN_CONFIG[key].chainId, code: new Set(), erc20: new Map(), factories: new Map(), pools: new Map(), v4Pools: new Map(), logs: [], block: 1000, failGetLogs: false, down: false });
   const w = {
     chains, calls, ch,
     deploy(key, a) { ch(key).code.add(lc(a)); },
-    deployConfig(key) { const c = CHAIN_CONFIG[key]; c.protocols.forEach(p => { w.deploy(key, p.factory); ch(key).factories.set(lc(p.factory), new Map()); }); w.deploy(key, c.native.wrapped); },
+    deployConfig(key) { const c = CHAIN_CONFIG[key]; c.protocols.forEach(p => { const target = p.factory || p.manager; if (target) { w.deploy(key, target); if (p.factory) ch(key).factories.set(lc(p.factory), new Map()); } if (p.stateView) w.deploy(key, p.stateView); }); w.deploy(key, c.native.wrapped); },
     token(key, a, { decimals = 18, supply = 10n ** 27n } = {}) { ch(key).erc20.set(lc(a), { decimals, supply, bal: new Map() }); w.deploy(key, a); },
     setBalance(key, tokenAddr, holder, v) { ch(key).erc20.get(lc(tokenAddr)).bal.set(lc(holder), BigInt(v)); },
     /* V2-style pool registered in the given protocol's factory */
@@ -46,6 +46,14 @@ export function createWorld() {
     /* world-level chain mutation helpers */
     setV2Reserves(key, pool, r0, r1) { const p = ch(key).pools.get(lc(pool)); p.r0 = BigInt(r0); p.r1 = BigInt(r1); },
     setV3Price(key, pool, sqrtP) { ch(key).pools.get(lc(pool)).sqrtP = BigInt(sqrtP); },
+    v4Pool(key, poolId, token, quoteCurrency, sqrtP, liquidity = 10n ** 18n) {
+      const cfg = CHAIN_CONFIG[key], proto = cfg.protocols.find(x => x.id === 'uniswap_v4');
+      const token0 = lc(quoteCurrency) < lc(token) ? lc(quoteCurrency) : lc(token), token1 = lc(quoteCurrency) < lc(token) ? lc(token) : lc(quoteCurrency);
+      ch(key).v4Pools.set(poolId.toLowerCase(), { token0, token1, sqrtP: BigInt(sqrtP), liquidity: BigInt(liquidity) });
+      w.deploy(key, proto.manager); w.deploy(key, proto.stateView);
+      w.pushLog(key, v4InitializeLog({ manager: proto.manager, poolId, currency0: token0, currency1: token1, block: 900, sqrtP }));
+    },
+    setV4Price(key, poolId, sqrtP) { ch(key).v4Pools.get(poolId.toLowerCase()).sqrtP = BigInt(sqrtP); },
     pushLog(key, log) { ch(key).logs.push(log); },
     mine(key, n = 1) { ch(key).block += n; return ch(key).block; }
   };
@@ -54,6 +62,13 @@ export function createWorld() {
     const c = ch(key); to = lc(to); const sel = data.slice(0, 10), body = strip0x(data.slice(10));
     const word = i => body.slice(i * 64, i * 64 + 64), wa = i => '0x' + word(i).slice(24);
     const erc = c.erc20.get(to), pool = c.pools.get(to), fac = c.factories.get(to);
+    const v4Proto = CHAIN_CONFIG[key].protocols.find(x => x.id === 'uniswap_v4');
+    if (v4Proto && to === lc(v4Proto.stateView)) {
+      const id = '0x' + word(0), v4 = c.v4Pools.get(id);
+      if (!v4) throw new Error('v4_pool_not_found');
+      if (sel === SEL.v4GetSlot0) return enc(v4.sqrtP, 0, 0, 3000);
+      if (sel === SEL.v4GetLiquidity) return enc(v4.liquidity);
+    }
     if (fac) {
       if (sel === SEL.getPair) { const [a, b] = [lc(wa(0)), lc(wa(1))].sort(); return enc(BigInt(fac.get(a + ':' + b) || 0)); }
       if (sel === SEL.getPool) { const [a, b] = [lc(wa(0)), lc(wa(1))].sort(); const fee = BigInt('0x' + word(2)); return enc(BigInt(fac.get(a + ':' + b + ':' + fee) || 0)); }
@@ -85,8 +100,8 @@ export function createWorld() {
       case 'eth_getLogs': {
         if (c.failGetLogs) throw new Error('getLogs_failed');
         const f = params[0], from = Number(BigInt(f.fromBlock)), to = Number(BigInt(f.toBlock));
-        const topics = (f.topics && f.topics[0]) || null;
-        return c.logs.filter(l => lc(l.address) === lc(f.address) && Number(BigInt(l.blockNumber)) >= from && Number(BigInt(l.blockNumber)) <= to && (!topics || topics.includes(l.topics[0])));
+        const topics = f.topics || [];
+        return c.logs.filter(l => lc(l.address) === lc(f.address) && Number(BigInt(l.blockNumber)) >= from && Number(BigInt(l.blockNumber)) <= to && topics.every((want, i) => want == null || (Array.isArray(want) ? want.some(x => lc(x) === lc(l.topics[i] || '')) : lc(want) === lc(l.topics[i] || ''))));
       }
       default: throw new Error('method_not_mocked:' + method);
     }
@@ -108,6 +123,8 @@ export const v2SwapLog = ({ a0in = 0n, a1in = 0n, a0out = 0n, a1out = 0n, ...m }
 export const v2SyncLog = ({ r0, r1, ...m }) => ({ ...meta(m), topics: [TOPIC.v2Sync], data: enc(r0, r1) });
 export const v3SwapLog = ({ amount0, amount1, sqrtP, liquidity = 10n ** 18n, tick = 0, ...m }) => ({ ...meta(m), topics: [TOPIC.v3Swap, '0x' + addrWord(addr(0xaaa)), '0x' + addrWord(addr(0xbbb))], data: enc(amount0, amount1, sqrtP, liquidity, tick) });
 export const pancakeV3SwapLog = ({ amount0, amount1, sqrtP, liquidity = 10n ** 18n, tick = 0, ...m }) => ({ ...meta(m), topics: [TOPIC.pancakeV3Swap, '0x' + addrWord(addr(0xaaa)), '0x' + addrWord(addr(0xbbb))], data: enc(amount0, amount1, sqrtP, liquidity, tick, 0, 0) });
+export const v4InitializeLog = ({ manager, poolId, currency0, currency1, fee = 3000, tickSpacing = 60, hooks = ZERO_ADDR, sqrtP, tick = 0, ...m }) => ({ ...meta({ pool: manager, ...m }), topics: [TOPIC.v4Initialize, poolId, '0x' + addrWord(currency0), '0x' + addrWord(currency1)], data: enc(fee, tickSpacing, BigInt(hooks), sqrtP || 0n, tick) });
+export const v4SwapLog = ({ manager, poolId, sender = addr(0xaaa), amount0, amount1, sqrtP, liquidity = 10n ** 18n, tick = 0, fee = 3000, ...m }) => ({ ...meta({ pool: manager, ...m }), topics: [TOPIC.v4Swap, poolId, '0x' + addrWord(sender)], data: enc(amount0, amount1, sqrtP, liquidity, tick, fee) });
 export const asRemoved = l => ({ ...l, removed: true });
 
 export const tick = (ms = 0) => new Promise(r => setTimeout(r, ms));

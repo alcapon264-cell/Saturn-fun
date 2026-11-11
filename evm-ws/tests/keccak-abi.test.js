@@ -14,12 +14,12 @@ test('selectors derived from signatures equal the constants already used by lib/
   assert.equal(SEL.totalSupply, '0x18160ddd'); assert.equal(SEL.slot0, '0x3850c7bd'); assert.equal(SEL.getPool, '0x1698ee82');
   assert.equal(SEL.balanceOf, '0x70a08231');
 });
-test('event topic0 hashes: V2 Swap/Sync, V3 Swap and PancakeSwap V3 Swap are four different events', () => {
+test('event topic0 hashes: V2/V3/Pancake V3 and V4 Swap/Initialize are distinct events', () => {
   assert.equal(TOPIC.v2Swap, '0xd78ad95fa46c994b6551d0da85fc275fe613ce37657fb8d5e3d130840159d822');
   assert.equal(TOPIC.v2Sync, '0x1c411e9a96e071241c2f21f7726b17ae89e3cab4c78be50e062b03a9fffbbad1');
   assert.equal(TOPIC.v3Swap, '0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67');
   assert.equal(TOPIC.pancakeV3Swap, '0x19b47279256b2a23a1665c810c8d55a1758940ee09377d4f8d26497a3577dc83');
-  assert.equal(new Set(Object.values(TOPIC)).size, 4);
+  assert.equal(new Set(Object.values(TOPIC)).size, 6);
 });
 test('abi helpers are strict', () => {
   assert.equal(encodeCall(SEL.balanceOf, '0x' + '1'.repeat(40)), '0x70a08231' + '0'.repeat(24) + '1'.repeat(40));
