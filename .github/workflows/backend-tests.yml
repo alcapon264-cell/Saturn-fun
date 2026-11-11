@@ -1,3 +1,4 @@
+
 name: Saturn Backend Tests
 
 on:
@@ -22,3 +23,8 @@ jobs:
 
       - name: Run isolated backend tests
         run: node --test tests/profiles.test.js tests/rpc.test.js tests/community.test.js
+
+      - name: Run offline EVM relay tests
+        working-directory: evm-ws
+        run: npm install && npm test
+        
