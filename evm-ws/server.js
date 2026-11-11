@@ -42,7 +42,7 @@ function findChainEntry(payload, slug) {
     if (!value || typeof value !== 'object' || seen.has(value)) continue;
     seen.add(value);
     if (Array.isArray(value)) { stack.push(...value); continue; }
-    const id = value.slug ?? value.name ?? value.chain ?? value.id;
+    const id = value.chain ?? value.slug ?? value.id ?? value.name;
     if (String(id || '').toLowerCase() === slug.toLowerCase()) return value;
     for (const child of Object.values(value)) if (child && typeof child === 'object') stack.push(child);
   }
@@ -56,11 +56,17 @@ async function loadCatalog() {
   });
   if (!response.ok) throw new Error(`catalog_http_${response.status}`);
   const payload = await response.json();
+  const entries = Array.isArray(payload?.chains) ? payload.chains : null;
+  if (!entries) throw new Error('catalog_invalid_shape_expected_chains_array');
+
   for (const [key, chain] of Object.entries(CHAINS)) {
+    // BlockVectra's catalogue identifies networks with `chain` (e.g. eth_mainnet).
+    // Prefer that stable slug over the human-readable `name` (e.g. Ethereum).
     const entry = findChainEntry(payload, chain.slug);
     const subs = Array.isArray(entry?.subscriptions) ? entry.subscriptions : [];
     state[key].supported = entry?.ws === true && subs.includes('newHeads');
     state[key].lastError = state[key].supported ? null : 'websocket_not_confirmed_by_catalog';
+    if (!entry) state[key].lastError = 'chain_not_listed_in_catalog';
   }
 }
 
