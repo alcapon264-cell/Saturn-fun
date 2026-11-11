@@ -10,6 +10,11 @@ import { SEL, lc } from '../src/abi.js';
 import { createWorld, addr, buildPool, addRefPool, makeFetch, HIGH, LOW, v2SwapLog, v2SyncLog, v3SwapLog, pancakeV3SwapLog, v4SwapLog, asRemoved, sqrtPFromHumanPrice, tick } from './helpers.js';
 
 const close = (a, b, rel = 1e-6) => assert.ok(Math.abs(a - b) <= Math.abs(b) * rel + 1e-18, `${a} !~ ${b}`);
+const waitFor = async (fn, timeoutMs = 500) => {
+  const end = Date.now() + timeoutMs;
+  while (Date.now() < end) { const value = fn(); if (value) return value; await new Promise(r => setTimeout(r, 2)); }
+  throw new Error('timed out waiting for asynchronous engine update');
+};
 
 function setup(chain, { opts = {}, fetchImpl = makeFetch(), clock = null } = {}) {
   const world = createWorld(); world.deployConfig(chain);
@@ -49,7 +54,7 @@ for (const c of CASES) {
     const snap = S.markets()[0];
     assert.equal(snap.snapshot, true); assert.equal(snap.chainId, cfg.chainId);
     close(snap.priceQuote, price, 1e-6); close(snap.priceUsd, price * quoteUsd, 1e-5);
-    close(snap.fdvUsd, price * quoteUsd * 1e9, 1e-5); assert.equal(snap.mcKind, 'fdv');
+    assert.equal(snap.mcKind, 'fdv');
     // a buy that moves the price up 10%
     const newPrice = price * 1.1, rawTok = (n, d) => BigInt(Math.round(n)) * 10n ** BigInt(d);
     const prev = S.markets().length;
@@ -66,10 +71,13 @@ for (const c of CASES) {
       const mk = c.swap === 'pancake' ? pancakeV3SwapLog : v3SwapLog;
       S.engine.onLog(c.chain, mk({ pool, block: 1002, logIndex: 5, tx: 7777, sqrtP, ...(tokenIs0 ? { amount0: -tokOut, amount1: quoteIn } : { amount1: -tokOut, amount0: quoteIn }) }));
     }
-    const upd = S.markets().slice(prev), last = upd[upd.length - 1];
-    assert.ok(upd.length >= 1);
-    assert.equal(last.trigger, 'swap'); assert.equal(last.trade.side, 'buy'); close(last.trade.tokenAmount, 1000); close(last.trade.quoteAmount, 8);
-    close(last.priceQuote, newPrice, 1e-5); close(last.priceUsd, newPrice * quoteUsd, 1e-5); close(last.fdvUsd, newPrice * quoteUsd * 1e9, 1e-5);
+    await waitFor(() => S.markets().some(m => m.trigger === 'metadata' && m.fdvUsd != null));
+    const upd = S.markets().slice(prev), last = upd.find(m => m.trigger === 'swap');
+    assert.ok(last);
+    assert.equal(last.trade.side, 'buy'); close(last.trade.tokenAmount, 1000); close(last.trade.quoteAmount, 8);
+    close(last.priceQuote, newPrice, 1e-5); close(last.priceUsd, newPrice * quoteUsd, 1e-5);
+    const enriched = S.markets().at(-1);
+    close(enriched.fdvUsd, newPrice * quoteUsd * 1e9, 1e-5);
     assert.equal(last.circulatingMarketCapUsd, null); assert.equal(last.circulatingStatus, 'unavailable');
     assert.ok(last.timing.decodeMs >= 0 && last.timing.serverMs >= 0);
     assert.equal(last.block.number, 1002);
@@ -203,11 +211,33 @@ test('reorg deeper than the history ring falls back to an on-chain state re-read
   S.engine.shutdown();
 });
 
+
+test('fast first snapshot: delayed historical backfill does not block track; live price is published before recovery finishes', async () => {
+  const S = setup('arb'), USDC = Object.keys(CHAIN_CONFIG.arb.stables)[0], pool = addr(0x6f01);
+  buildPool(S.world, 'arb', { protocolId: 'uniswap_v3', pool, token: LOW, quote: USDC, price: 0.25, quoteDec: 6, tokenBal: 2_000_000 });
+  const originalGetLogs = S.world.rpc.getLogs.bind(S.world.rpc);
+  let release, enteredResolve;
+  const entered = new Promise(r => { enteredResolve = r; });
+  const gate = new Promise(r => { release = r; });
+  S.world.rpc.getLogs = async (...args) => { enteredResolve(); await gate; return originalGetLogs(...args); };
+
+  const result = await S.engine.track('arb', LOW, 's1', S.listener);
+  assert.equal(result.status, 'live');
+  const first = S.markets().find(m => m.snapshot);
+  assert.ok(first, 'initial snapshot is available before getLogs resolves');
+  close(first.priceUsd, 0.25);
+  await entered;
+  assert.equal(S.markets().filter(m => m.snapshot).length, 1);
+  release();
+  await new Promise(r => setTimeout(r, 10));
+  S.engine.shutdown();
+});
+
 /* ---------- F. supply: FDV vs circulating ---------- */
 test('FDV uses totalSupply scaled by token decimals; circulating market cap is reported unavailable (never FDV relabelled)', async () => {
   const S = setup('arb'), USDC = Object.keys(CHAIN_CONFIG.arb.stables)[0];
   buildPool(S.world, 'arb', { protocolId: 'uniswap_v3', pool: addr(0x6001), token: LOW, quote: USDC, price: 0.5, quoteDec: 6, tokenDec: 6, tokenBal: 1_000_000, supply: 21_000_000n * 10n ** 6n });
-  await S.engine.track('arb', LOW, 's1', S.listener); const m = S.markets()[0];
+  await S.engine.track('arb', LOW, 's1', S.listener); const m = await waitFor(() => S.markets().find(x => x.totalSupply != null));
   assert.equal(m.totalSupply, 21_000_000); close(m.fdvUsd, 10_500_000);
   assert.equal(m.mcKind, 'fdv'); assert.equal(m.circulatingMarketCapUsd, null); assert.equal(m.circulatingSupply, null); assert.equal(m.circulatingStatus, 'unavailable');
   assert.ok(!('marketCapUsd' in m), 'no field may present FDV as "market cap"');
@@ -217,7 +247,7 @@ test('unreadable total supply: price still published, FDV is null (not guessed)'
   const S = setup('arb'), USDC = Object.keys(CHAIN_CONFIG.arb.stables)[0];
   buildPool(S.world, 'arb', { protocolId: 'uniswap_v3', pool: addr(0x6101), token: LOW, quote: USDC, price: 0.5, quoteDec: 6, tokenBal: 1_000_000 });
   S.world.ch('arb').erc20.get(LOW).supply = 0n; // totalSupply() == 0 is treated as unreadable
-  await S.engine.track('arb', LOW, 's1', S.listener); const m = S.markets()[0];
+  await S.engine.track('arb', LOW, 's1', S.listener); const m = await waitFor(() => S.markets().find(x => x.trigger === 'metadata'));
   close(m.priceUsd, 0.5); assert.equal(m.fdvUsd, null); assert.equal(m.totalSupply, null);
   S.engine.shutdown();
 });
@@ -298,7 +328,7 @@ test('upstream down -> subscribers are told the token is degraded (clients fall 
   assert.equal(S.msgs.filter(m => m.type === 'evm_token_status').pop().status, 'degraded'); S.engine.shutdown();
 });
 test('periodic reconcile detects silent drift (a missed event) and republishes the corrected price', async () => {
-  const { S, pool } = await liveV3(); S.world.setV3Price('arb', pool, sqrtPFromHumanPrice(0.0275, 18, 6));
+  const { S, pool } = await liveV3(); await waitFor(() => S.markets().some(m => m.trigger === 'metadata')); S.world.setV3Price('arb', pool, sqrtPFromHumanPrice(0.0275, 18, 6));
   await S.engine.reconcileAll(); const m = S.markets().pop();
   assert.equal(m.trigger, 'reconcile'); close(m.priceUsd, 0.0275, 1e-5); assert.equal(S.metrics.snapshot().counters.reconcile_drift, 1);
   const n = S.markets().length; await S.engine.reconcileAll(); assert.equal(S.markets().length, n, 'no republish when nothing drifted');
@@ -328,9 +358,9 @@ test('Robinhood Uniswap V4: Initialize discovery -> StateView snapshot -> PoolMa
   assert.equal(snap.liquidityUsd, null, 'V4 active liquidity is not misreported as TVL');
   const nextPrice = 0.008, prev = S.markets().length;
   S.engine.onLog('robinhood', v4SwapLog({ manager, poolId, block: 1002, logIndex: 1, amount0: 8n * 10n ** 18n, amount1: -(1000n * 10n ** 18n), sqrtP: sqrtPFromHumanPrice(1 / nextPrice, 18, 18) }));
-  const update = S.markets().slice(prev).at(-1);
+  const update = S.markets().slice(prev).find(m => m.trigger === 'swap');
   assert.equal(update.trigger, 'swap'); assert.equal(update.trade.side, 'buy');
   close(update.priceQuote, nextPrice, 1e-6); close(update.priceUsd, nextPrice * 3000, 1e-5);
-  close(update.fdvUsd, nextPrice * 3000 * 1e9, 1e-5);
+  await waitFor(() => S.markets().some(m => m.fdvUsd != null)); close(S.markets().at(-1).fdvUsd, nextPrice * 3000 * 1e9, 1e-5);
   S.engine.shutdown();
 });
