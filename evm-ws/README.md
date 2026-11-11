@@ -6,15 +6,14 @@ Standalone service. It does not change the Vercel HTTP API, the Solana WebSocket
 
 ```
 swap log (BlockVectra WS, address+topic filtered)
- → protocol-specific decoder (Uniswap V2-style / Uniswap V3 / PancakeSwap V3)   src/protocols.js
+ → protocol-specific decoder (Uniswap V2-style / Uniswap V3 / PancakeSwap V3 / Robinhood Uniswap V4)   src/protocols.js
  → pool state + token/quote price (decimals + token0/token1 orientation)         src/engine.js
  → quote-token USD (stable / on-chain reference pool / labelled Coinbase spot)   src/quote.js
  → FDV = price × totalSupply  (circulating market cap is reported "unavailable")  src/engine.js
  → evm_market message to browsers subscribed to that token only                  src/hub.js
 ```
 
-Browsers subscribe by **token** (`chain` + `token`). The relay discovers pools itself and accepts a pool only if the chain's factory
-returns it for the (token, quote[, fee]) pair, the pool's own `token0()/token1()` match, and its state is non-empty. Browsers can never
+Browsers subscribe by **token** (`chain` + `token`). The relay discovers pools itself. V2/V3 pools are factory-derived and token0/token1 checked; Robinhood V4 pools are found from PoolManager `Initialize` logs and verified through StateView using their indexed `poolId`. Browsers can never
 name a pool, RPC URL or RPC method, and raw logs are never sent to browsers.
 
 | File | Role |
@@ -24,7 +23,7 @@ name a pool, RPC URL or RPC method, and raw logs are never sent to browsers.
 | `src/chains.js` | per-chain config (factories, wrapped native, stables) — **verified at startup, see below** |
 | `src/rpc.js` | server-side JSON-RPC (read-only allowlist, batching) |
 | `src/registry.js` | chain verification, decimals/supply caches, pool discovery + verification |
-| `src/protocols.js` | V2 / V3 / Pancake V3 decoders and price math |
+| `src/protocols.js` | V2 / V3 / Pancake V3 / Robinhood V4 decoders and price math |
 | `src/quote.js` | quote-token → USD with TTL cache and fallbacks |
 | `src/engine.js` | dedupe, reorg, backfill/recovery, reconcile, FDV, publish |
 | `src/upstream.js` | BlockVectra WebSocket per chain, reconnect + resubscribe |
@@ -46,9 +45,7 @@ Relay → browser
 - `evm_head` only to clients watching a token on that chain, at most 1/s/chain. `evm_error {code}`.
 
 ## Startup verification (important)
-Addresses in `src/chains.js` are configuration, not proof. At boot the relay checks `eth_chainId` and `eth_getCode` for every factory and
-wrapped-native token; failures disable that protocol/chain and show in `/healthz → verification`. Only the Robinhood factory/WETH come from
-the existing Saturn backend; the rest were entered from public deployment docs and were **not** confirmed live during development.
+Addresses in `src/chains.js` are configuration, not proof. At boot the relay checks `eth_chainId` and `eth_getCode` for every configured factory or PoolManager, the V4 StateView, and the wrapped-native token; failures disable that protocol/chain and show in `/healthz → verification`. The Robinhood V4 manager and StateView are sourced from Uniswap's official deployment list. These addresses and the event path were not confirmed against a live RPC during this build.
 Run `node scripts/live-check.mjs` once before relying on a chain.
 
 ## Render setup
@@ -60,3 +57,9 @@ Optional env (defaults in parentheses): `EVM_MAX_TOKENS_PER_CLIENT` (8), `EVM_MA
 
 ## Tests
 `npm test` (offline). `npm run live-check` (live, read-only, needs `BLOCKVECTRA_API_KEY`).
+
+### Robinhood Chain Uniswap V4
+
+Robinhood Chain (4663) now has an Uniswap V4 handler in addition to its existing V3 handler. The relay discovers V4 pools from `Initialize` logs emitted by the verified PoolManager, reads `sqrtPriceX96` and active liquidity through the verified StateView, and subscribes to PoolManager `Swap` logs filtered by event topic. Each event is matched to its indexed `poolId` before it can update a token.
+
+V4 liquidity is **not reported as USD TVL**: the PoolManager is a singleton and its ERC-20 balances are shared across pools. V4 pools require nonzero StateView active liquidity, but do not use the V2/V3 `$1,000 TVL` threshold. Live RPC and BlockVectra verification must still be run before relying on this path. Deployment addresses are sourced from [Uniswap's official V4 deployments](https://developers.uniswap.org/docs/protocols/v4/deployments).
