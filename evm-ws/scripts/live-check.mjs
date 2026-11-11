@@ -17,7 +17,7 @@ let failed = 0; const row = (ok, ...a) => { if (!ok) failed++; console.log(ok ? 
 for (const k of CHAIN_KEYS) {
   const cfg = CHAIN_CONFIG[k];
   const v = await registry.verifyChain(k, { force: true });
-  row(v.ok, k, 'chainId', cfg.chainId, 'rpc+factories', JSON.stringify({ ok: v.ok, reason: v.reason, enabled: v.protocols, disabled: v.disabled }));
+  row(v.ok, k, 'chainId', cfg.chainId, 'rpc+factory/manager/StateView', JSON.stringify({ ok: v.ok, reason: v.reason, enabled: v.protocols, disabled: v.disabled }));
   if (!v.ok) continue;
   try { const n = await rpc.blockNumber(k); row(n > 0, k, 'head block', n); } catch (e) { row(false, k, 'blockNumber', e.message); }
   const q = await quotes.get(k, cfg.native.wrapped);
@@ -28,7 +28,7 @@ for (const arg of process.argv.slice(2)) {
   if (!CHAIN_CONFIG[chain] || !/^0x[0-9a-fA-F]{40}$/.test(token || '')) { row(false, 'bad argument', arg); continue; }
   const found = [];
   for (const qa of [...Object.keys(CHAIN_CONFIG[chain].stables), CHAIN_CONFIG[chain].native.wrapped]) { try { found.push(...await registry.findPools(chain, token, qa)); } catch (e) { /* reported below */ } }
-  row(found.length > 0, chain, token, 'verified pools:', found.map(p => `${p.protocol}:${p.address} tvlQuote=${p.tvlQuote.toFixed(2)} price=${p.state.price}`).join(' | ') || 'none');
+  row(found.length > 0, chain, token, 'verified pools:', found.map(p => `${p.protocol}:${p.poolId || p.address} tvlQuote=${p.tvlQuote == null ? 'n/a' : p.tvlQuote.toFixed(2)} activeLiquidity=${p.activeLiquidity == null ? 'n/a' : p.activeLiquidity.toString()} price=${p.state.price}`).join(' | ') || 'none');
   try { const s = await registry.totalSupplyOf(chain, token); row(true, chain, token, 'totalSupply', s.supply); } catch (e) { row(false, chain, token, 'totalSupply', e.message); }
 }
 console.log(JSON.stringify(metrics.snapshot().counters));
