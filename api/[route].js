@@ -34,6 +34,7 @@ const routes = {
   'evm-config': 'evmConfig',
   'evm-rpc': 'evmRpc',
   'evm-quote': 'evmQuote',
+  'evm-market': 'evmMarket',
   'bnb-holders': 'bnbHolders',
 };
 
