@@ -130,7 +130,9 @@ function connectChain(key,chain){
  });
 }
 const server=http.createServer((req,res)=>{
- if(req.url==='/healthz'||req.url==='/'){res.writeHead(200,{'content-type':'application/json','cache-control':'no-store'});res.end(JSON.stringify({ok:true,service:'saturn-evm-ws',chains:state,poolSubscriptions:poolSubs.size}));return}
+ let pathname='/';
+ try { pathname = new URL(req.url || '/', 'http://localhost').pathname; } catch {}
+ if(pathname==='/healthz'||pathname==='/'){res.writeHead(200,{'content-type':'application/json','cache-control':'no-store'});res.end(JSON.stringify({ok:true,service:'saturn-evm-ws',chains:state,poolSubscriptions:poolSubs.size}));return}
  res.writeHead(404,{'content-type':'application/json'});res.end('{"ok":false,"error":"not_found"}')
 });
 const wss=new WebSocketServer({noServer:true,maxPayload:16*1024});
