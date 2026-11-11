@@ -5,7 +5,7 @@
  * Pool addresses are never taken from this file or from the browser: each pool is re-derived from the factory
  * (getPair/getPool) and cross-checked against the pool's own token0()/token1().
  *
- * Only the Robinhood Chain factory/WETH come from the existing Saturn backend (lib/evm.js). All other addresses were
+ * Robinhood V4 manager/StateView addresses are from Uniswap's official deployment list. The Robinhood V3 factory/WETH come from the existing Saturn backend (lib/evm.js). All other addresses were
  * entered from public protocol deployment docs and have NOT been confirmed against a live RPC from the build sandbox.
  */
 const a = s => s.toLowerCase();
@@ -68,7 +68,8 @@ export const CHAIN_CONFIG = Object.freeze({
        is configured: ETH/USD on this chain comes from the same Coinbase spot source the existing /api/evm-market route uses. */
     stables: {},
     protocols: [
-      { id: 'uniswap_v3', family: 'v3', swap: 'v3Swap', factory: a('0x1f7d7550b1b028f7571e69a784071f0205fd2efa'), fees: V3_FEES_UNI }
+      { id: 'uniswap_v3', family: 'v3', swap: 'v3Swap', factory: a('0x1f7d7550b1b028f7571e69a784071f0205fd2efa'), fees: V3_FEES_UNI },
+      { id: 'uniswap_v4', family: 'v4', manager: a('0x8366a39cc670b4001a1121b8f6a443a643e40951'), stateView: a('0xf3334192d15450cdd385c8b70e03f9a6bd9e673b') }
     ]
   }
 });

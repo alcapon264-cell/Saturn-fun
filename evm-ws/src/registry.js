@@ -5,7 +5,7 @@
  *   3. its protocol state can be read and is non-empty (V2 reserves > 0; V3 sqrtPrice > 0 and liquidity > 0).
  * The browser can suggest a token, never a pool or an RPC URL. */
 import { CHAIN_CONFIG, quoteAssets } from './chains.js';
-import { SEL, encodeCall, isAddr, lc, readUint, readAddr, ZERO_ADDR, words } from './abi.js';
+import { SEL, TOPIC, encodeCall, isAddr, lc, readUint, readAddr, ZERO_ADDR, words, addrWord, wordUint, wordAddr, wordInt } from './abi.js';
 import { handlerFor } from './protocols.js';
 
 export class LRU {
@@ -34,11 +34,12 @@ export function createRegistry({ rpc, metrics = null, now = Date.now, supplyTtlM
         const id = Number(BigInt(await rpc.call(chain, 'eth_chainId')));
         if (id !== cfg.chainId) value = { ok: false, reason: 'chain_id_mismatch', protocols: [] };
         else {
-          const targets = [...cfg.protocols.map(p => p.factory), cfg.native.wrapped];
+          const protocolTargets = cfg.protocols.map(p => p.factory || p.manager);
+          const targets = [...protocolTargets, cfg.native.wrapped, ...cfg.protocols.filter(p => p.family === 'v4').map(p => p.stateView)];
           const res = await rpc.batch(chain, targets.map(t => ({ method: 'eth_getCode', params: [t, 'latest'] })));
           const hasCode = r => r.ok && typeof r.result === 'string' && r.result.length > 4;
-          const protocols = cfg.protocols.filter((p, i) => hasCode(res[i])).map(p => p.id);
-          const wrappedOk = hasCode(res[res.length - 1]);
+          const protocols = cfg.protocols.filter((p, i) => hasCode(res[i]) && (p.family !== 'v4' || hasCode(res[res.length - 1]))).map(p => p.id);
+          const wrappedOk = hasCode(res[cfg.protocols.length]);
           value = { ok: protocols.length > 0 && wrappedOk, reason: !wrappedOk ? 'wrapped_native_missing' : protocols.length ? '' : 'no_verified_factory', protocols, disabled: cfg.protocols.filter(p => !protocols.includes(p.id)).map(p => p.id), chainId: id };
         }
       } catch (e) { value = { ok: false, reason: 'rpc_unreachable', protocols: [] }; }
@@ -70,6 +71,61 @@ export function createRegistry({ rpc, metrics = null, now = Date.now, supplyTtlM
     }).catch(e => { if (hit) { metrics?.inc('supply_stale_served'); return { ...hit, stale: true }; } throw e; });
   }
 
+  /* V4 Initialize events are the on-chain pool registry: poolId is indexed and currency0/currency1 are indexed.
+     Scan only logs from the verified singleton manager and only logs mentioning the requested token. */
+  async function findV4Pools(chain, token, quote, proto) {
+    const cfg = CHAIN_CONFIG[chain];
+    if (quote !== cfg.native.wrapped) return [];
+    const latest = await rpc.blockNumber(chain);
+    const tokenTopic = '0x' + addrWord(token);
+    const topic0 = TOPIC.v4Initialize;
+    let logs = [];
+    for (const topics of [[topic0, null, tokenTopic], [topic0, null, null, tokenTopic]]) {
+      try {
+        const found = await rpc.getLogs(chain, { address: proto.manager, topics, fromBlock: 0, toBlock: latest });
+        logs.push(...found);
+      } catch (e) {
+        // Providers may cap eth_getLogs ranges. Retry in bounded windows, newest first.
+        const maxBlocks = 2000000, span = 25000;
+        const floor = Math.max(0, latest - maxBlocks);
+        for (let end = latest; end >= floor; end -= span) {
+          const start = Math.max(floor, end - span + 1);
+          const part = await rpc.getLogs(chain, { address: proto.manager, topics, fromBlock: start, toBlock: end });
+          logs.push(...part);
+        }
+      }
+    }
+    const tokenDec = await decimalsOf(chain, token);
+    const candidates = new Map();
+    for (const log of logs) {
+      try {
+        if (!Array.isArray(log.topics) || log.topics.length !== 4 || log.topics[0].toLowerCase() !== topic0.toLowerCase()) continue;
+        const currency0 = wordAddr(log.topics[2].slice(2));
+        const currency1 = wordAddr(log.topics[3].slice(2));
+        const other = currency0 === token ? currency1 : currency1 === token ? currency0 : null;
+        if (!other || ![ZERO_ADDR, cfg.native.wrapped].includes(other)) continue;
+        const poolId = log.topics[1].toLowerCase();
+        const tokenIsToken0 = currency0 === token;
+        const quoteDec = 18;
+        const pool = { chain, address: proto.manager, poolId, stateView: proto.stateView, protocol: proto.id, family: 'v4', fee: Number(BigInt('0x' + words(log.data)[0])), token, quote: cfg.native.wrapped,
+          token0: currency0, token1: currency1, tokenIsToken0, tokenDecimals: tokenDec, quoteDecimals: quoteDec,
+          dec0: tokenIsToken0 ? tokenDec : quoteDec, dec1: tokenIsToken0 ? quoteDec : tokenDec };
+        candidates.set(poolId, pool);
+      } catch { metrics?.inc('v4_initialize_malformed'); }
+    }
+    const verified = [];
+    for (const pool of candidates.values()) {
+      try {
+        const h = handlerFor(pool.protocol), result = await rpc.batch(chain, h.stateCalls(pool));
+        const ctx = { tokenIsToken0: pool.tokenIsToken0, dec0: pool.dec0, dec1: pool.dec1, tokenDecimals: tokenDec, quoteDecimals: 18, poolId: pool.poolId };
+        const state = h.parseState(result, ctx);
+        if (state.empty || !(state.price > 0)) continue;
+        verified.push({ ...pool, state, tvlQuote: null, activeLiquidity: state.liquidity });
+      } catch { metrics?.inc('v4_pool_state_errors'); }
+    }
+    return verified;
+  }
+
   /* ---- pool discovery for one (token, quote) pair across every verified protocol of the chain ---- */
   async function findPools(chain, token, quote) {
     const cfg = CHAIN_CONFIG[chain]; token = lc(token); quote = lc(quote);
@@ -80,7 +136,7 @@ export function createRegistry({ rpc, metrics = null, now = Date.now, supplyTtlM
     const lookups = [];
     for (const p of protos) {
       if (p.family === 'v2') lookups.push({ p, fee: null, call: { method: 'eth_call', params: [{ to: p.factory, data: encodeCall(SEL.getPair, token, quote) }, 'latest'] } });
-      else for (const fee of p.fees) lookups.push({ p, fee, call: { method: 'eth_call', params: [{ to: p.factory, data: encodeCall(SEL.getPool, token, quote, fee) }, 'latest'] } });
+      else if (p.family === 'v3') for (const fee of p.fees) lookups.push({ p, fee, call: { method: 'eth_call', params: [{ to: p.factory, data: encodeCall(SEL.getPool, token, quote, fee) }, 'latest'] } });
     }
     const res = await rpc.batch(chain, lookups.map(l => l.call));
     const seen = new Set(), cands = [];
@@ -90,7 +146,9 @@ export function createRegistry({ rpc, metrics = null, now = Date.now, supplyTtlM
       if (addr === ZERO_ADDR || seen.has(addr)) return;
       seen.add(addr); cands.push({ ...l, address: addr });
     });
-    if (!cands.length) return [];
+    const v4Proto = protos.find(p => p.family === 'v4');
+    const v4Pools = v4Proto ? await findV4Pools(chain, token, quote, v4Proto).catch(e => { metrics?.inc('v4_discovery_errors'); return []; }) : [];
+    if (!cands.length) return v4Pools;
     const [tokenDec, quoteDec] = await Promise.all([decimalsOf(chain, token), decimalsOf(chain, quote)]);
     const sortedToken0 = token < quote ? token : quote, sortedToken1 = token < quote ? quote : token;
     const tokenIsToken0 = token === sortedToken0;
@@ -124,13 +182,13 @@ export function createRegistry({ rpc, metrics = null, now = Date.now, supplyTtlM
         });
       } catch (e) { metrics?.inc('pool_rejected_error'); }
     });
-    return verified;
+    return [...verified, ...v4Pools];
   }
 
   /* Re-read live state for a verified pool (used by reconcile, reorg recovery, reconnect gaps). */
   async function readPoolState(pool) {
     const h = handlerFor(pool.protocol);
-    const res = await rpc.batch(pool.chain, h.stateCalls(pool.address));
+    const res = await rpc.batch(pool.chain, h.stateCalls(pool.family === 'v4' ? pool : pool.address));
     return h.parseState(res, pool);
   }
   const clear = () => { decimalsCache.clear(); supplyCache.clear(); chainHealth.clear(); };

@@ -114,7 +114,7 @@ function v3Handler(familyName, eventKey) {
     spotFromSqrt(sqrtP, ctx) {
       return priceFromRawRatio({ rawToken1PerToken0Num: sqrtP * sqrtP, rawToken1PerToken0Den: Q96 * Q96, dec0: ctx.dec0, dec1: ctx.dec1, tokenIsToken0: ctx.tokenIsToken0 });
     },
-    stateCalls: pool => [{ method: 'eth_call', params: [{ to: pool, data: SEL.slot0 }, 'latest'] }, { method: 'eth_call', params: [{ to: pool, data: SEL.liquidity }, 'latest'] }],
+    stateCalls: pool => { const addr = typeof pool === 'string' ? pool : pool.address; return [{ method: 'eth_call', params: [{ to: addr, data: SEL.slot0 }, 'latest'] }, { method: 'eth_call', params: [{ to: addr, data: SEL.liquidity }, 'latest'] }]; },
     parseState(results, ctx) {
       if (!results[0]?.ok) throw new Error('state_read_failed');
       const sqrtP = readUint(results[0].result, 0) & ((1n << 160n) - 1n);
@@ -127,5 +127,53 @@ function v3Handler(familyName, eventKey) {
 export const uniswapV3 = v3Handler('v3', 'v3Swap');
 export const pancakeV3 = v3Handler('v3', 'pancakeV3Swap');
 
-export const HANDLERS = Object.freeze({ uniswap_v2: v2, pancake_v2: v2, quickswap_v2: v2, uniswap_v3: uniswapV3, pancake_v3: pancakeV3 });
+
+
+/* ---------- Uniswap V4 singleton PoolManager ----------
+ * V4 pools are identified by a bytes32 poolId, not by individual pool contracts. Swap logs are emitted
+ * by the shared PoolManager and carry poolId as indexed topic[1]. State is read through StateView. */
+export const uniswapV4 = Object.freeze({
+  family: 'v4',
+  topics: Object.freeze([TOPIC.v4Swap]),
+  matches(log, ctx) { return !!(log && Array.isArray(log.topics) && log.topics[1] && log.topics[1].toLowerCase() === String(ctx.poolId || '').toLowerCase()); },
+  decode(log, ctx) {
+    const pos = requireLog(log);
+    if (log.topics[0] !== TOPIC.v4Swap || log.topics.length !== 3 || !this.matches(log, ctx)) throw new Error('malformed_log');
+    topicAddr(log.topics[2]);
+    const w = words(log.data); if (w.length !== 6) throw new Error('malformed_log');
+    const amount0 = BigInt.asIntN(128, wordUint(w[0])), amount1 = BigInt.asIntN(128, wordUint(w[1]));
+    const sqrtP = wordUint(w[2]);
+    if (sqrtP <= 0n || sqrtP >= (1n << 160n)) throw new Error('malformed_log');
+    const tokenAmt = ctx.tokenIsToken0 ? amount0 : amount1, quoteAmt = ctx.tokenIsToken0 ? amount1 : amount0;
+    let side = 'other';
+    if (tokenAmt < 0n && quoteAmt > 0n) side = 'buy';
+    else if (tokenAmt > 0n && quoteAmt < 0n) side = 'sell';
+    const abs = x => x < 0n ? -x : x;
+    const trade = { side, tokenAmount: normAmt(abs(tokenAmt), ctx.tokenDecimals), quoteAmount: normAmt(abs(quoteAmt), ctx.quoteDecimals) };
+    trade.execPriceQuote = side !== 'other' && tokenAmt !== 0n ? ratioToNumber(abs(quoteAmt) * POW10(ctx.tokenDecimals), abs(tokenAmt) * POW10(ctx.quoteDecimals)) : null;
+    const price = this.spotFromSqrt(sqrtP, ctx);
+    return { kind: 'swap', ...pos, trade, sqrtPriceX96: sqrtP, price };
+  },
+  spotFromSqrt(sqrtP, ctx) {
+    return priceFromRawRatio({ rawToken1PerToken0Num: sqrtP * sqrtP, rawToken1PerToken0Den: Q96 * Q96, dec0: ctx.dec0, dec1: ctx.dec1, tokenIsToken0: ctx.tokenIsToken0 });
+  },
+  stateCalls(pool) {
+    const id = typeof pool === 'string' ? null : pool.poolId;
+    const view = typeof pool === 'string' ? null : pool.stateView;
+    if (!id || !view) throw new Error('v4_pool_metadata_missing');
+    return [
+      { method: 'eth_call', params: [{ to: view, data: SEL.v4GetSlot0 + id.slice(2) }, 'latest'] },
+      { method: 'eth_call', params: [{ to: view, data: SEL.v4GetLiquidity + id.slice(2) }, 'latest'] }
+    ];
+  },
+  parseState(results, ctx) {
+    if (!results[0]?.ok || !results[1]?.ok) throw new Error('state_read_failed');
+    const sqrtP = readUint(results[0].result, 0) & ((1n << 160n) - 1n);
+    const liquidity = readUint(results[1].result, 0);
+    if (sqrtP === 0n) return { price: null, sqrtPriceX96: 0n, liquidity, empty: true };
+    return { price: this.spotFromSqrt(sqrtP, ctx), sqrtPriceX96: sqrtP, liquidity, empty: liquidity === 0n };
+  }
+});
+
+export const HANDLERS = Object.freeze({ uniswap_v2: v2, pancake_v2: v2, quickswap_v2: v2, uniswap_v3: uniswapV3, pancake_v3: pancakeV3, uniswap_v4: uniswapV4 });
 export function handlerFor(protocolId) { const h = HANDLERS[protocolId]; if (!h) throw new Error('unsupported_protocol'); return h; }

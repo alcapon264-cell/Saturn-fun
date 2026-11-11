@@ -10,14 +10,17 @@ export const lc = v => String(v).toLowerCase();
 export const SIG = Object.freeze({
   token0: 'token0()', token1: 'token1()', decimals: 'decimals()', totalSupply: 'totalSupply()',
   balanceOf: 'balanceOf(address)', getReserves: 'getReserves()', slot0: 'slot0()', liquidity: 'liquidity()',
-  getPair: 'getPair(address,address)', getPool: 'getPool(address,address,uint24)', factory: 'factory()', fee: 'fee()'
+  getPair: 'getPair(address,address)', getPool: 'getPool(address,address,uint24)', factory: 'factory()', fee: 'fee()',
+  v4GetSlot0: 'getSlot0(bytes32)', v4GetLiquidity: 'getLiquidity(bytes32)'
 });
 export const SEL = Object.freeze(Object.fromEntries(Object.entries(SIG).map(([k, v]) => [k, selector(v)])));
 export const EVENT_SIG = Object.freeze({
   v2Swap: 'Swap(address,uint256,uint256,uint256,uint256,address)',
   v2Sync: 'Sync(uint112,uint112)',
   v3Swap: 'Swap(address,address,int256,int256,uint160,uint128,int24)',
-  pancakeV3Swap: 'Swap(address,address,int256,int256,uint160,uint128,int24,uint128,uint128)'
+  pancakeV3Swap: 'Swap(address,address,int256,int256,uint160,uint128,int24,uint128,uint128)',
+  v4Swap: 'Swap(bytes32,address,int128,int128,uint160,uint128,int24,uint24)',
+  v4Initialize: 'Initialize(bytes32,address,address,uint24,int24,address,uint160,int24)'
 });
 export const TOPIC = Object.freeze(Object.fromEntries(Object.entries(EVENT_SIG).map(([k, v]) => [k, topic0(v)])));
 

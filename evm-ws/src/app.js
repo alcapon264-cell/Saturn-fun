@@ -84,7 +84,7 @@ export function createApp({ env = process.env, WebSocketImpl, WebSocketServer, f
     for (const k of CHAIN_KEYS) Object.assign(upstream.state[k], { supported: !!cat[k]?.supported, logs: !!cat[k]?.logs, lastError: cat[k]?.supported ? null : 'websocket_not_confirmed_by_catalog' });
     await new Promise(r => server.listen(port, host, r));
     log('[saturn-evm-ws] listening on ' + server.address().port);
-    // Startup verification: chain id + code at every configured factory. Failures disable that protocol and are visible in /healthz.
+    // Startup verification: chain id + code at each configured factory/manager, V4 StateView and wrapped-native token. Failures are visible in /healthz.
     Promise.all(CHAIN_KEYS.map(k => registry.verifyChain(k, { force: true }).then(v => log('[saturn-evm-ws] verify', k, JSON.stringify(v))))).catch(() => {});
     upstream.start(); engine.startReconcile();
     return server.address().port;

@@ -105,9 +105,11 @@ export function createEngine({ rpc, registry, quotes, upstream, metrics, now = D
     for (const p of found) {
       const q = await quotes.get(rec.chain, p.quote);
       if (!q) { metrics?.inc('pool_rejected_quote_unpriced'); continue; }
-      const tvlUsd = p.tvlQuote * q.usd;
-      if (!(tvlUsd >= O.minPoolTvlUsd)) { metrics?.inc('pool_rejected_low_liquidity'); continue; }
-      priced.push({ ...p, tvlUsd, tvlAt: now() });
+      const tvlUsd = p.tvlQuote == null ? null : p.tvlQuote * q.usd;
+      // V4 StateView exposes active liquidity, not per-pool token balances; never fabricate a TVL.
+      if (p.family !== 'v4' && !(tvlUsd >= O.minPoolTvlUsd)) { metrics?.inc('pool_rejected_low_liquidity'); continue; }
+      if (p.family === 'v4' && !(p.activeLiquidity > 0n)) continue;
+      priced.push({ ...p, tvlUsd, tvlAt: tvlUsd == null ? null : now() });
     }
     priced.sort((a, b) => b.tvlUsd - a.tvlUsd);
     return priced;
@@ -116,7 +118,7 @@ export function createEngine({ rpc, registry, quotes, upstream, metrics, now = D
     return { ...p, rec, ready: false, pre: [], history: [], lastPos: null, lastEventAt: null, startBlock, swaps: 0, lastTrade: null,
       cur: { price: p.state.price, reserve0: p.state.reserve0, reserve1: p.state.reserve1, sqrtPriceX96: p.state.sqrtPriceX96 }, reorgs: 0 };
   }
-  const ctxOf = tp => ({ tokenIsToken0: tp.tokenIsToken0, dec0: tp.dec0, dec1: tp.dec1, tokenDecimals: tp.tokenDecimals, quoteDecimals: tp.quoteDecimals });
+  const ctxOf = tp => ({ tokenIsToken0: tp.tokenIsToken0, dec0: tp.dec0, dec1: tp.dec1, tokenDecimals: tp.tokenDecimals, quoteDecimals: tp.quoteDecimals, poolId: tp.poolId });
 
   /* ---------------- supply / FDV ---------------- */
   function refreshSupply(rec, force) {
@@ -144,6 +146,8 @@ export function createEngine({ rpc, registry, quotes, upstream, metrics, now = D
     if (seen.has(id)) { metrics?.inc('logs_duplicate'); return; }
     let any = false;
     for (const tp of set) {
+      const h = handlerFor(tp.protocol);
+      if (h.matches && !h.matches(log, ctxOf(tp))) continue;
       if (!tp.ready) { if (tp.pre.length < O.preReadyMax) tp.pre.push({ log, recvAt, recvPerf }); else metrics?.inc('pre_ready_dropped'); continue; }
       if (applyLog(tp, id, log, recvAt, recvPerf, silent, source)) any = true;
     }
@@ -234,6 +238,7 @@ export function createEngine({ rpc, registry, quotes, upstream, metrics, now = D
     }
   }
   async function refreshTvl(tp) {
+    if (tp.family === 'v4') return; // PoolManager balances are shared across all V4 pools; they cannot be attributed to one pool.
     const bal = await rpc.batch(tp.chain, [tp.token, tp.quote].map(t => ({ method: 'eth_call', params: [{ to: t, data: encodeCall(SEL.balanceOf, tp.address) }, 'latest'] })));
     if (!bal[0].ok || !bal[1].ok) return;
     tp.tokenBal = Number(BigInt(bal[0].result)) / Math.pow(10, tp.tokenDecimals); tp.quoteBal = Number(BigInt(bal[1].result)) / Math.pow(10, tp.quoteDecimals);
@@ -248,7 +253,7 @@ export function createEngine({ rpc, registry, quotes, upstream, metrics, now = D
     const cfg = CHAIN_CONFIG[rec.chain];
     const usable = rec.pools.filter(p => p.ready && p.cur && p.cur.price > 0);
     if (!usable.length) return null;
-    const primary = usable.reduce((b, p) => (p.tvlUsd || 0) > (b.tvlUsd || 0) ? p : b, usable[0]);
+    const primary = usable.reduce((b, p) => { const av = p.tvlUsd ?? Number(p.activeLiquidity || 0n); const bv = b.tvlUsd ?? Number(b.activeLiquidity || 0n); return av > bv ? p : b; }, usable[0]);
     const qp = quotes.peek(rec.chain, primary.quote);
     const priceQuote = primary.cur.price;
     const priceUsd = qp ? priceQuote * qp.usd : null;
@@ -262,12 +267,12 @@ export function createEngine({ rpc, registry, quotes, upstream, metrics, now = D
     const msg = {
       type: 'evm_market', v: 1, chain: rec.chain, chainId: cfg.chainId, token: rec.token, seq: rec.seq, trigger, snapshot: trigger === 'snapshot', reorg, source,
       priceUsd, priceQuote, quoteToken: primary.quote, quoteUsd: qp ? qp.usd : null, quoteUsdBasis: qp ? qp.basis : null, quoteUsdAgeMs: qp ? qp.ageMs : null,
-      priceBasis: primary.family === 'v2' ? 'v2_reserves_after_update' : 'v3_sqrt_price_after_swap',
+      priceBasis: primary.family === 'v2' ? 'v2_reserves_after_update' : primary.family === 'v4' ? 'v4_poolmanager_sqrt_price_after_swap' : 'v3_sqrt_price_after_swap',
       totalSupply: sup ? sup.supply : null, supplyStale: !!(sup && sup.stale),
       fdvUsd, mcKind: 'fdv',
       circulatingSupply: null, circulatingMarketCapUsd: null, circulatingStatus: 'unavailable',
       liquidityUsd: primary.tvlUsd ?? null, liquidityAt: primary.tvlAt ?? null,
-      primaryPool: { address: primary.address, protocol: primary.protocol, fee: primary.fee, quote: primary.quote },
+      primaryPool: { address: primary.address, poolId: primary.poolId || null, protocol: primary.protocol, fee: primary.fee, quote: primary.quote },
       pools: usable.map(p => { const q = quotes.peek(rec.chain, p.quote); return { address: p.address, protocol: p.protocol, fee: p.fee, quote: p.quote, priceQuote: p.cur.price, priceUsd: q ? p.cur.price * q.usd : null, tvlUsd: p.tvlUsd ?? null, lastEventAt: p.lastEventAt }; }),
       trade, block: tp && tp.lastPos ? { number: tp.lastPos[0], logIndex: tp.lastPos[1] } : null,
       usdAvailable: priceUsd != null,
