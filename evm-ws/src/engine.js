@@ -75,21 +75,40 @@ export function createEngine({ rpc, registry, quotes, upstream, metrics, now = D
       if (!tokens.has(rec.key)) return;
       if (!pools.length) { emitStatus(rec, 'no_pools', 'no_verified_pool'); return; }
       rec.pools = pools.slice(0, O.maxPoolsPerToken).map(p => makeTokenPool(rec, p, startBlock));
-      // Cached pool metadata is immutable (factory-verified); its STATE is not, so a cache hit always re-reads live state.
+      // Cached pool metadata is factory-verified, but its state can be stale. Refresh cached
+      // state before publishing; the expensive historical log recovery remains asynchronous.
       if (fromCache) await Promise.all(rec.pools.map(tp => resync(tp, 'discovery', { silent: true }).catch(() => false)));
+      // Subscribe immediately after verified discovery.
       for (const tp of rec.pools) {
         const k = pkey(rec.chain, tp.address); let set = poolIndex.get(k);
         if (!set) { set = new Set(); poolIndex.set(k, set); }
         set.add(tp);
         if (set.size === 1) upstream.subscribeLogs(rec.chain, tp.address, handlerFor(tp.protocol).topics);
       }
-      await refreshSupply(rec, true); // FDV must be in the very first snapshot; a read failure only leaves fdvUsd null
-      // close the gap between the state read and the live subscription, then go live
-      await Promise.all(rec.pools.map(tp => recoverPool(tp, { silent: true })));
+      // Start accepting live events before historical recovery. The pre-ready queue is replayed
+      // in arrival order; recoverPool's block/log position checks prevent older backfill from
+      // overwriting newer live state.
       for (const tp of rec.pools) { tp.ready = true; for (const q of tp.pre.splice(0)) processLog(rec.chain, q.log, q.recvAt, q.recvPerf, { silent: true }); }
       rec.discoveredAt = now(); rec.status = 'live'; rec.reason = null;
+
+      // Start the supply read before publish(): publish() also requests a refresh, and the
+      // single-flight guard must attach to this same in-flight read rather than suppress it.
+      const supplyTask = Promise.resolve(refreshSupply(rec, true)).then(() => {
+        if (tokens.has(rec.key) && rec.status === 'live') publish(rec, 'metadata', {});
+      });
       publish(rec, 'snapshot', {});
       metrics?.observe('discovery_ms', perf() - t0);
+
+      // Supply/FDV and history recovery are deliberately non-blocking.
+      const recoveryTasks = rec.pools.map(async tp => {
+        const before = tp.lastPos && tp.lastPos.join(':');
+        await recoverPool(tp, { silent: true });
+        return before !== (tp.lastPos && tp.lastPos.join(':'));
+      });
+      Promise.allSettled([supplyTask, ...recoveryTasks]).then(results => {
+        const recovered = results.slice(1).some(r => r.status === 'fulfilled' && r.value);
+        if (recovered && tokens.has(rec.key) && rec.status === 'live') publish(rec, 'recovered', {});
+      });
     } catch (e) {
       log('discovery_failed', rec.key, e && e.message);
       metrics?.inc('discovery_errors');
@@ -101,16 +120,16 @@ export function createEngine({ rpc, registry, quotes, upstream, metrics, now = D
     try { await registry.decimalsOf(rec.chain, rec.token); } catch { return []; }   // not an ERC-20 we can read
     const qs = quoteAssets(cfg).filter(q => q.address !== rec.token);
     const found = (await Promise.all(qs.map(q => registry.findPools(rec.chain, rec.token, q.address).catch(e => { if (String(e.message).startsWith('chain_unavailable')) throw e; return []; })))).flat();
-    const priced = [];
-    for (const p of found) {
+    const pricedResults = await Promise.all(found.map(async p => {
       const q = await quotes.get(rec.chain, p.quote);
-      if (!q) { metrics?.inc('pool_rejected_quote_unpriced'); continue; }
+      if (!q) { metrics?.inc('pool_rejected_quote_unpriced'); return null; }
       const tvlUsd = p.tvlQuote == null ? null : p.tvlQuote * q.usd;
       // V4 StateView exposes active liquidity, not per-pool token balances; never fabricate a TVL.
-      if (p.family !== 'v4' && !(tvlUsd >= O.minPoolTvlUsd)) { metrics?.inc('pool_rejected_low_liquidity'); continue; }
-      if (p.family === 'v4' && !(p.activeLiquidity > 0n)) continue;
-      priced.push({ ...p, tvlUsd, tvlAt: tvlUsd == null ? null : now() });
-    }
+      if (p.family !== 'v4' && !(tvlUsd >= O.minPoolTvlUsd)) { metrics?.inc('pool_rejected_low_liquidity'); return null; }
+      if (p.family === 'v4' && !(p.activeLiquidity > 0n)) return null;
+      return { ...p, tvlUsd, tvlAt: tvlUsd == null ? null : now() };
+    }));
+    const priced = pricedResults.filter(Boolean);
     priced.sort((a, b) => b.tvlUsd - a.tvlUsd);
     return priced;
   }
