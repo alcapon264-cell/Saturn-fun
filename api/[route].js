@@ -35,6 +35,8 @@ const routes = {
   'evm-rpc': 'evmRpc',
   'evm-quote': 'evmQuote',
   'evm-market': 'evmMarket',
+  'lifi-quote': 'lifiQuote',
+  'lifi-status': 'lifiStatus',
   'bnb-holders': 'bnbHolders',
 };
 
