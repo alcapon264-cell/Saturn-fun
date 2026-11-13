@@ -49,6 +49,9 @@ export function createHub({ engine, registry, metrics, now = Date.now, limits = 
     if (c.tokens.size >= L.maxTokensPerClient) return err(c, 'too_many_tokens', { chain, token });
     c.tokens.set(key, { chain, token });
     const listener = msg => deliver(c, key, msg);
+    // Acknowledge receipt immediately; discovery may require several RPC calls.
+    // The final acknowledgement below reports live/no_pools/error when discovery completes.
+    ack(c, chain, token, 'discovering', null);
     engine.track(chain, token, c.id, listener).then(r => {
       if (c.closed || !c.tokens.has(key)) return;
       ack(c, chain, token, r.status, r.reason);

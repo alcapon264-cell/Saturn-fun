@@ -26,14 +26,17 @@ export function createUpstream({ WebSocketImpl, apiKey, catalog = {}, onLog, onH
       const id = c.nextId++; c.pending.set(id, { kind: 'heads' });
       ws.send(JSON.stringify({ jsonrpc: '2.0', id, method: 'eth_subscribe', params: ['newHeads'] }));
       if (s.logs) for (const addr of c.subs.keys()) sendSub(c, key, addr);
-      s.reconnects > 0 ? Promise.resolve(onUp(key)).catch(() => {}) : null;
     });
     ws.on('message', raw => {
       let m; try { m = JSON.parse(raw.toString()); } catch { metrics?.inc('upstream_bad_json'); return; }
       if (!m || typeof m !== 'object') return;
       if (m.id != null) {
         const p = c.pending.get(m.id); if (!p) return; c.pending.delete(m.id);
-        if (p.kind === 'heads') { if (typeof m.result === 'string') { c.headsId = m.result; s.subscribed = true; s.reconnects = s.reconnects; } else s.lastError = 'newHeads_subscription_rejected'; }
+        if (p.kind === 'heads') { if (typeof m.result === 'string') {
+          c.headsId = m.result; s.subscribed = true;
+          // Report readiness only after the provider confirms the newHeads subscription.
+          Promise.resolve(onUp(key)).catch(() => {});
+        } else { s.subscribed = false; s.lastError = 'newHeads_subscription_rejected'; } }
         else if (p.kind === 'pool') {
           const rec = c.subs.get(p.addr); if (!rec) { if (typeof m.result === 'string') ws.send(JSON.stringify({ jsonrpc: '2.0', id: c.nextId++, method: 'eth_unsubscribe', params: [m.result] })); return; }
           rec.pendingId = null;

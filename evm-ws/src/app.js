@@ -46,7 +46,7 @@ export function createApp({ env = process.env, WebSocketImpl, WebSocketServer, f
     WebSocketImpl, apiKey: API_KEY, catalog: catalog || {}, metrics,
     onLog: (chain, l) => engine.onLog(chain, l),
     onHead: (chain, h) => hub && hub.headFor(chain, h),
-    onUp: chain => { hub && hub.broadcastStatus({ type: 'evm_ws_status', chain, chainId: CHAIN_CONFIG[chain].chainId, connected: true, subscribed: true, logs: upstream.state[chain].logs }); return engine.onUpstreamUp(chain); },
+    onUp: chain => { hub && hub.broadcastStatus({ type: 'evm_ws_status', chain, chainId: CHAIN_CONFIG[chain].chainId, connected: upstream.state[chain].connected, subscribed: upstream.state[chain].subscribed, logs: upstream.state[chain].logs }); return engine.onUpstreamUp(chain); },
     onDown: chain => { hub && hub.broadcastStatus({ type: 'evm_ws_status', chain, chainId: CHAIN_CONFIG[chain].chainId, connected: false, subscribed: false, logs: upstream.state[chain].logs }); engine.onUpstreamDown(chain); }
   });
   engine = createEngine({ rpc, registry, quotes, upstream, metrics, now, log: (...a) => log('[saturn-evm-ws]', ...a), opts: {
