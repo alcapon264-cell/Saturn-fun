@@ -59,6 +59,7 @@ test('quote proxies an executable Solana to EVM route and keeps API key server-s
   assert.equal(url.searchParams.get('toChain'), '1');
   assert.equal(url.searchParams.get('fromAmount'), '1000000000');
   assert.equal(url.searchParams.get('integrator'), 'Saturn');
+  assert.equal(url.searchParams.get('fee'), '0.01');
   assert.equal(calls[0].options.headers['x-lifi-api-key'], 'server-only-secret');
   assert.ok(!JSON.stringify(result.body).includes('server-only-secret'));
 });

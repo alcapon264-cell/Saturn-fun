@@ -12,6 +12,7 @@ function mock(extraEnv = {}, overrides = {}) {
   const env = {
     BLOCKVECTRA_API_KEY: 'test-blockvectra-key',
     ZEROX_API_KEY: 'test-0x-key',
+    EVM_TREASURY_WALLET: '0x' + '44'.repeat(20),
     ...extraEnv
   };
   const ids = {
@@ -182,6 +183,10 @@ test('quote uses 0x API v2 for each supported network and returns a trimmed tran
   assert.ok(quoteCall.url.includes('chainId=1'));
   assert.equal(quoteCall.options.headers['0x-version'], 'v2');
   assert.equal(quoteCall.options.headers['0x-api-key'], 'test-0x-key');
+  const quoteUrl = new URL(quoteCall.url);
+  assert.equal(quoteUrl.searchParams.get('swapFeeRecipient'), '0x' + '44'.repeat(20));
+  assert.equal(quoteUrl.searchParams.get('swapFeeBps'), '100');
+  assert.equal(quoteUrl.searchParams.get('swapFeeToken'), NATIVE);
   const first = await evm.quote({ method: 'GET', query: {
     chain: 'eth', mode: 'quote', sellToken: 'NATIVE', buyToken: T, sellAmount: '5', taker: B
   } });
@@ -197,6 +202,8 @@ test('quote validation, no key, no route and no liquidity', async () => {
   assert.equal((await evm.quote({ method: 'GET', query: { ...baseQuery, buyToken: NATIVE } })).body.error, 'same_token');
   const noKey = mock({ ZEROX_API_KEY: undefined }).evm;
   assert.equal((await noKey.quote({ method: 'GET', query: baseQuery })).body.error, 'swap_not_configured');
+  const noTreasury = mock({ EVM_TREASURY_WALLET: undefined }).evm;
+  assert.equal((await noTreasury.quote({ method: 'GET', query: baseQuery })).body.error, 'evm_fee_not_configured');
   const noRoute = mock({}, { zeroX: async () => jr({ reason: 'No route' }, false, 400) }).evm;
   assert.equal((await noRoute.quote({ method: 'GET', query: baseQuery })).body.error, 'no_route');
   const noLiquidity = mock({}, { zeroX: async () => jr({ liquidityAvailable: false }) }).evm;
