@@ -41,3 +41,11 @@ Token addresses must be supplied in LI.FI format. Native SOL uses `1111111111111
 ## Tests
 
 Run `npm test` from the backend root. The added LI.FI tests use mocked provider responses and do not make live network or blockchain calls.
+
+
+## Saturn EVM platform fee (1%)
+
+- Set Vercel environment variable `EVM_TREASURY_WALLET` to Saturn's public EVM receiving address (`0x...`). This is used by 0x Swap API on all configured EVM networks.
+- Saturn's 0x requests set `swapFeeBps=100` (1%) and collect the fee in the sell token. The backend rejects EVM quotes until the treasury address is configured.
+- LI.FI cross-chain quotes send `fee=0.01` and the configured `LIFI_INTEGRATOR` (defaults to `Saturn`). Before enabling cross-chain fee collection in production, create/verify the Saturn integration in the LI.FI Partner Portal and configure the receiving wallet there. LI.FI EVM fees are claimed through the portal; they are not sent directly to the EVM address per swap.
+- Never put a wallet seed phrase or private key in Vercel or the frontend. The treasury address is public and only receives fees.
