@@ -103,13 +103,15 @@ test('hub: validates every inbound message and never accepts RPC URLs, methods o
   ws.recv({ type: 'subscribe_pool', chain: 'arb', address: addr(1) }); ws.recv({ type: 'subscribe_token', chain: 'arb', token: LOW, rpcUrl: 'http://evil' });
   await tick(30);
   assert.deepEqual(ws.of('evm_error').map(e => e.code), ['bad_json', 'bad_message', 'bad_message', 'unknown_type', 'unsupported_chain', 'bad_token', 'subscribe_pool_deprecated']);
-  assert.equal(ws.of('evm_subscribed').length, 1, 'extra fields are ignored, only chain+token are used');
+  assert.equal(ws.of('evm_subscribed').length, 2, 'subscription receipt and final discovery status are both acknowledged');
+  assert.deepEqual(ws.of('evm_subscribed').map(m => m.status), ['discovering', 'no_pools']);
   H.engine.shutdown();
 });
 test('hub: only subscribed tokens are delivered; multiple tokens per client; no raw logs ever reach a browser', async () => {
   const H = await hubSetup(), A = H.client(), B = H.client();
   sub(A, LOW); sub(A, HIGH); sub(B, addr(0x2222)); await tick(40);
-  assert.equal(A.of('evm_subscribed').length, 2); assert.deepEqual(A.of('evm_subscribed').map(m => m.status), ['live', 'live']);
+  assert.equal(A.of('evm_subscribed').length, 4);
+  assert.deepEqual(A.of('evm_subscribed').filter(m => m.status !== 'discovering').map(m => m.status), ['live', 'live']);
   H.hub.flushAll(); A.out.length = 0; B.out.length = 0;
   H.engine.onLog('arb', H.swapFor(LOW, 0.021, 1500)); H.engine.onLog('arb', H.swapFor(HIGH, 0.045, 1501)); H.hub.flushAll();
   assert.deepEqual(A.of('evm_market').map(m => m.token).sort(), [HIGH, LOW].sort()); assert.equal(B.of('evm_market').length, 0);
