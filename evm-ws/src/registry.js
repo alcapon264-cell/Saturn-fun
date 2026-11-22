@@ -20,7 +20,7 @@ export class LRU {
 }
 
 export function createRegistry({ rpc, metrics = null, now = Date.now, supplyTtlMs = 600000, chainVerifyTtlMs = 60000 } = {}) {
-  const decimalsCache = new LRU(5000), supplyCache = new LRU(2000), inflight = new Map(), chainHealth = new Map();
+  const decimalsCache = new LRU(5000), supplyCache = new LRU(2000), inflight = new Map(), chainHealth = new Map(), codeSeen = new Map();
   const once = (key, fn) => { let p = inflight.get(key); if (!p) { p = fn().finally(() => inflight.delete(key)); inflight.set(key, p); } return p; };
 
   /* ---- chain verification (chain id + code at every configured factory / wrapped native) ---- */
@@ -36,13 +36,23 @@ export function createRegistry({ rpc, metrics = null, now = Date.now, supplyTtlM
         else {
           const protocolTargets = cfg.protocols.map(p => p.factory || p.manager);
           const targets = [...protocolTargets, cfg.native.wrapped, ...cfg.protocols.filter(p => p.family === 'v4').map(p => p.stateView)];
-          const res = await rpc.batch(chain, targets.map(t => ({ method: 'eth_getCode', params: [t, 'latest'] })));
-          const hasCode = r => r.ok && typeof r.result === 'string' && r.result.length > 4;
-          const protocols = cfg.protocols.filter((p, i) => hasCode(res[i]) && (p.family !== 'v4' || hasCode(res[res.length - 1]))).map(p => p.id);
-          const wrappedOk = hasCode(res[cfg.protocols.length]);
-          value = { ok: protocols.length > 0 && wrappedOk, reason: !wrappedOk ? 'wrapped_native_missing' : protocols.length ? '' : 'no_verified_factory', protocols, disabled: cfg.protocols.filter(p => !protocols.includes(p.id)).map(p => p.id), chainId: id };
+          /* Contract code does not disappear, so an address seen WITH code is remembered for good. A failed or
+             rate-limited eth_getCode in a later re-check is "unknown", never "missing": previously the whole chain was
+             switched off for a minute (wrapped_native_missing) on any transient RPC error, and every Discover row on it
+             lost its live feed. Only a successful answer of empty code counts as missing. */
+          const known = codeSeen.get(chain) || new Set(); codeSeen.set(chain, known);
+          const ask = targets.filter(t => !known.has(lc(t)));
+          const res = ask.length ? await rpc.batch(chain, ask.map(t => ({ method: 'eth_getCode', params: [t, 'latest'] }))) : [];
+          let unknown = false;
+          ask.forEach((t, i) => { const r = res[i]; if (r && r.ok && typeof r.result === 'string' && r.result.length > 4) known.add(lc(t)); else if (!(r && r.ok)) unknown = true; });
+          const has = t => known.has(lc(t));
+          const protocols = cfg.protocols.filter(p => has(p.factory || p.manager) && (p.family !== 'v4' || has(p.stateView))).map(p => p.id);
+          const wrappedOk = has(cfg.native.wrapped);
+          if (unknown && c && c.value && c.value.ok && !(protocols.length > 0 && wrappedOk)) { value = { ...c.value, staleCheck: true }; }
+          else if (unknown && !(protocols.length > 0 && wrappedOk)) value = { ok: false, reason: 'rpc_unreachable', protocols: [], chainId: id };
+          else value = { ok: protocols.length > 0 && wrappedOk, reason: !wrappedOk ? 'wrapped_native_missing' : protocols.length ? '' : 'no_verified_factory', protocols, disabled: cfg.protocols.filter(p => !protocols.includes(p.id)).map(p => p.id), chainId: id };
         }
-      } catch (e) { value = { ok: false, reason: 'rpc_unreachable', protocols: [] }; }
+      } catch (e) { value = c && c.value && c.value.ok ? { ...c.value, staleCheck: true } : { ok: false, reason: 'rpc_unreachable', protocols: [] }; }
       chainHealth.set(chain, { at: now(), value });
       return value;
     });
